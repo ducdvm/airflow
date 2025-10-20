@@ -15,6 +15,7 @@ airflow-core/src/airflow/ui/coverage/
 airflow/git_version
 airflow/ui/coverage/
 logs/
+files/
 airflow-webserver.pid
 airflow-api-server.pid
 standalone_admin_password.txt

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["flit_core==3.12.0"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "apache-airflow-providers-keycloak"
+version = "1.0.0"
+description = "Provider package apache-airflow-providers-keycloak for Apache Airflow"
+dependencies = [
+    "apache-airflow>=3.0.0",
+]
+
+[project.entry-points."airflow.plugins"]
+keycloak_auth_manager_plugin = "airflow.providers.keycloak.plugins.keycloak_auth_manager_plugin:KeycloakAuthManagerPlugin"
+
+[tool.flit.sdist]
+include = ["src"]
+
+[tool.flit.module]
+name = "airflow.providers.keycloak"

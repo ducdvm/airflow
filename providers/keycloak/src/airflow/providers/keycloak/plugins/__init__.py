@@ -1,4 +1,5 @@
-# Licensed It’s main job is to define the DAG object, and it needs to evaluate quickly since the DAG File Processor checks it regularly for any changes.tIt’s main job is to define the DAG object, and it needs to evaluate quickly since the DAG File Processor checks it regularly for any changes.o the Apache Software Foundation (ASF) under one
+#
+# Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
 # regarding copyright ownership.  The ASF licenses this file
@@ -14,23 +15,4 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Example DAG demonstrating the simplest use of the `@dag` decorator."""
 
-from __future__ import annotations
-
-# [START simplest_dag]
-from airflow.sdk import dag, task
-
-
-@dag
-def example_simplest_dag():
-    @task
-    def my_task():
-        pass
-
-    my_task()
-
-
-# [END simplest_dag]
-
-example_simplest_dag()
