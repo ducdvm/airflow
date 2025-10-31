@@ -21,42 +21,48 @@ import inspect
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
 import textwrap
 import types
+import warnings
 from abc import ABCMeta, abstractmethod
-from collections.abc import Collection, Container, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Container, Iterable, Mapping, Sequence
 from functools import cache
+from itertools import chain
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Callable, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 import lazy_object_proxy
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.specifiers import InvalidSpecifier
+from packaging.version import InvalidVersion
 
 from airflow.exceptions import (
     AirflowConfigException,
     AirflowException,
+    AirflowProviderDeprecationWarning,
     AirflowSkipException,
     DeserializingResultError,
 )
-from airflow.models.baseoperator import BaseOperator
 from airflow.models.variable import Variable
+from airflow.providers.standard.hooks.package_index import PackageIndexHook
 from airflow.providers.standard.utils.python_virtualenv import prepare_virtualenv, write_python_script
-from airflow.providers.standard.version_compat import AIRFLOW_V_2_10_PLUS, AIRFLOW_V_3_0_PLUS
+from airflow.providers.standard.version_compat import AIRFLOW_V_3_0_PLUS, BaseOperator, context_merge
 from airflow.utils import hashlib_wrapper
-from airflow.utils.context import context_copy_partial, context_merge
 from airflow.utils.file import get_unique_dag_module_name
 from airflow.utils.operator_helpers import KeywordParameters
-from airflow.utils.process_utils import execute_in_subprocess, execute_in_subprocess_with_kwargs
+from airflow.utils.process_utils import execute_in_subprocess
 
 if AIRFLOW_V_3_0_PLUS:
-    from airflow.providers.standard.operators.branch import BranchMixIn
+    from airflow.providers.standard.operators.branch import BaseBranchOperator
     from airflow.providers.standard.utils.skipmixin import SkipMixin
 else:
     from airflow.models.skipmixin import SkipMixin
-    from airflow.operators.branch import BranchMixIn  # type: ignore[no-redef]
+    from airflow.operators.branch import BaseBranchOperator  # type: ignore[no-redef]
 
 
 log = logging.getLogger(__name__)
@@ -200,12 +206,10 @@ class PythonOperator(BaseOperator):
                 from airflow.sdk.execution_time.context import context_get_outlet_events
 
                 return create_executable_runner, context_get_outlet_events(context)
-            if AIRFLOW_V_2_10_PLUS:
-                from airflow.utils.context import context_get_outlet_events  # type: ignore
-                from airflow.utils.operator_helpers import ExecutionCallableRunner  # type: ignore
+            from airflow.utils.context import context_get_outlet_events  # type: ignore
+            from airflow.utils.operator_helpers import ExecutionCallableRunner  # type: ignore
 
-                return ExecutionCallableRunner, context_get_outlet_events(context)
-            return None
+            return ExecutionCallableRunner, context_get_outlet_events(context)
 
         self.__prepare_execution = __prepare_execution
 
@@ -235,7 +239,7 @@ class PythonOperator(BaseOperator):
         return runner.run(*self.op_args, **self.op_kwargs)
 
 
-class BranchPythonOperator(PythonOperator, BranchMixIn):
+class BranchPythonOperator(BaseBranchOperator, PythonOperator):
     """
     A workflow can "branch" or follow a path after the execution of this task.
 
@@ -249,10 +253,8 @@ class BranchPythonOperator(PythonOperator, BranchMixIn):
     the DAG run's state to be inferred.
     """
 
-    inherits_from_skipmixin = True
-
-    def execute(self, context: Context) -> Any:
-        return self.do_branch(context, super().execute(context))
+    def choose_branch(self, context: Context) -> str | Iterable[str]:
+        return PythonOperator.execute(self, context)
 
 
 class ShortCircuitOperator(PythonOperator, SkipMixin):
@@ -327,7 +329,7 @@ class ShortCircuitOperator(PythonOperator, SkipMixin):
                 self.skip(
                     dag_run=context["dag_run"],
                     tasks=to_skip,
-                    execution_date=cast("DateTime", dag_run.logical_date),  # type: ignore[call-arg, union-attr]
+                    execution_date=cast("DateTime", dag_run.logical_date),  # type: ignore[call-arg]
                     map_index=context["ti"].map_index,
                 )
 
@@ -484,7 +486,8 @@ class _BasePythonVirtualenvOperator(PythonOperator, metaclass=ABCMeta):
 
     def execute(self, context: Context) -> Any:
         serializable_keys = set(self._iter_serializable_context_keys())
-        serializable_context = context_copy_partial(context, serializable_keys)
+        new = {k: v for k, v in context.items() if k in serializable_keys}
+        serializable_context = cast("Context", new)
         return super().execute(context=serializable_context)
 
     def get_python_source(self):
@@ -572,16 +575,10 @@ class _BasePythonVirtualenvOperator(PythonOperator, metaclass=ABCMeta):
                     os.fspath(termination_log_path),
                     os.fspath(airflow_context_path),
                 ]
-                if AIRFLOW_V_2_10_PLUS:
-                    execute_in_subprocess(
-                        cmd=cmd,
-                        env=env_vars,
-                    )
-                else:
-                    execute_in_subprocess_with_kwargs(
-                        cmd=cmd,
-                        env=env_vars,
-                    )
+                execute_in_subprocess(
+                    cmd=cmd,
+                    env=env_vars,
+                )
             except subprocess.CalledProcessError as e:
                 if e.returncode in self.skip_on_exit_code:
                     raise AirflowSkipException(f"Process exited with code {e.returncode}. Skipping.")
@@ -659,6 +656,8 @@ class PythonVirtualenvOperator(_BasePythonVirtualenvOperator):
         exit code will be treated as a failure.
     :param index_urls: an optional list of index urls to load Python packages from.
         If not provided the system pip conf will be used to source packages from.
+    :param index_urls_from_connection_ids: An optional list of ``PackageIndex`` connection IDs.
+        Will be appended to ``index_urls``.
     :param venv_cache_path: Optional path to the virtual environment parent folder in which the
         virtual environment will be cached, creates a sub-folder venv-{hash} whereas hash will be replaced
         with a checksum of requirements. If not provided the virtual environment will be created and deleted
@@ -672,7 +671,9 @@ class PythonVirtualenvOperator(_BasePythonVirtualenvOperator):
     """
 
     template_fields: Sequence[str] = tuple(
-        {"requirements", "index_urls", "venv_cache_path"}.union(PythonOperator.template_fields)
+        {"requirements", "index_urls", "index_urls_from_connection_ids", "venv_cache_path"}.union(
+            PythonOperator.template_fields
+        )
     )
     template_ext: Sequence[str] = (".txt",)
 
@@ -693,6 +694,7 @@ class PythonVirtualenvOperator(_BasePythonVirtualenvOperator):
         expect_airflow: bool = True,
         skip_on_exit_code: int | Container[int] | None = None,
         index_urls: None | Collection[str] | str = None,
+        index_urls_from_connection_ids: None | Collection[str] | str = None,
         venv_cache_path: None | os.PathLike[str] = None,
         env_vars: dict[str, str] | None = None,
         inherit_env: bool = True,
@@ -727,6 +729,12 @@ class PythonVirtualenvOperator(_BasePythonVirtualenvOperator):
             self.index_urls = list(index_urls)
         else:
             self.index_urls = None
+        if isinstance(index_urls_from_connection_ids, str):
+            self.index_urls_from_connection_ids: list[str] | None = [index_urls_from_connection_ids]
+        elif isinstance(index_urls_from_connection_ids, Collection):
+            self.index_urls_from_connection_ids = list(index_urls_from_connection_ids)
+        else:
+            self.index_urls_from_connection_ids = None
         self.venv_cache_path = venv_cache_path
         super().__init__(
             python_callable=python_callable,
@@ -853,7 +861,27 @@ class PythonVirtualenvOperator(_BasePythonVirtualenvOperator):
             self.log.info("New Python virtual environment created in %s", venv_path)
             return venv_path
 
+    def _cleanup_python_pycache_dir(self, cache_dir_path: Path) -> None:
+        try:
+            shutil.rmtree(cache_dir_path)
+            self.log.debug("The directory %s has been deleted.", cache_dir_path)
+        except FileNotFoundError:
+            self.log.warning("Fail to delete %s. The directory does not exist.", cache_dir_path)
+        except PermissionError:
+            self.log.warning("Permission denied to delete the directory %s.", cache_dir_path)
+
+    def _retrieve_index_urls_from_connection_ids(self):
+        """Retrieve index URLs from Package Index connections."""
+        if self.index_urls is None:
+            self.index_urls = []
+        for conn_id in self.index_urls_from_connection_ids:
+            conn_url = PackageIndexHook(conn_id).get_connection_url()
+            self.index_urls.append(conn_url)
+
     def execute_callable(self):
+        if self.index_urls_from_connection_ids:
+            self._retrieve_index_urls_from_connection_ids()
+
         if self.venv_cache_path:
             venv_path = self._ensure_venv_cache_exists(Path(self.venv_cache_path))
             python_path = venv_path / "bin" / "python"
@@ -861,21 +889,53 @@ class PythonVirtualenvOperator(_BasePythonVirtualenvOperator):
 
         with TemporaryDirectory(prefix="venv") as tmp_dir:
             tmp_path = Path(tmp_dir)
+            custom_pycache_prefix = Path(sys.pycache_prefix or "")
+            r_path = tmp_path.relative_to(tmp_path.anchor)
+            venv_python_cache_dir = Path.cwd() / custom_pycache_prefix / r_path
             self._prepare_venv(tmp_path)
             python_path = tmp_path / "bin" / "python"
             result = self._execute_python_callable_in_subprocess(python_path)
+            self._cleanup_python_pycache_dir(venv_python_cache_dir)
             return result
 
     def _iter_serializable_context_keys(self):
         yield from self.BASE_SERIALIZABLE_CONTEXT_KEYS
-        if self.system_site_packages or "apache-airflow" in self.requirements:
+
+        found_airflow = found_pendulum = False
+
+        if self.system_site_packages:
+            # If we're using system packages, assume both are present
+            found_airflow = found_pendulum = True
+        else:
+            for raw_str in chain.from_iterable(req.splitlines() for req in self.requirements):
+                line = raw_str.strip()
+                # Skip blank lines and full‐line comments
+                if not line or line.startswith("#"):
+                    continue
+
+                # Strip off any inline comment
+                # e.g. turn "foo==1.2.3  # comment" → "foo==1.2.3"
+                req_str = re.sub(r"#.*$", "", line).strip()
+
+                try:
+                    req = Requirement(req_str)
+                except (InvalidRequirement, InvalidSpecifier, InvalidVersion) as e:
+                    raise ValueError(f"Invalid requirement '{raw_str}': {e}") from e
+
+                if req.name == "apache-airflow":
+                    found_airflow = found_pendulum = True
+                    break
+                elif req.name == "pendulum":
+                    found_pendulum = True
+
+        if found_airflow:
             yield from self.AIRFLOW_SERIALIZABLE_CONTEXT_KEYS
             yield from self.PENDULUM_SERIALIZABLE_CONTEXT_KEYS
-        elif "pendulum" in self.requirements:
+        elif found_pendulum:
             yield from self.PENDULUM_SERIALIZABLE_CONTEXT_KEYS
 
 
-class BranchPythonVirtualenvOperator(PythonVirtualenvOperator, BranchMixIn):
+class BranchPythonVirtualenvOperator(BaseBranchOperator, PythonVirtualenvOperator):
     """
     A workflow can "branch" or follow a path after the execution of this task in a virtual environment.
 
@@ -893,10 +953,8 @@ class BranchPythonVirtualenvOperator(PythonVirtualenvOperator, BranchMixIn):
         :ref:`howto/operator:BranchPythonVirtualenvOperator`
     """
 
-    inherits_from_skipmixin = True
-
-    def execute(self, context: Context) -> Any:
-        return self.do_branch(context, super().execute(context))
+    def choose_branch(self, context: Context) -> str | Iterable[str]:
+        return PythonVirtualenvOperator.execute(self, context)
 
 
 class ExternalPythonOperator(_BasePythonVirtualenvOperator):
@@ -1018,7 +1076,7 @@ class ExternalPythonOperator(_BasePythonVirtualenvOperator):
 
     def _iter_serializable_context_keys(self):
         yield from self.BASE_SERIALIZABLE_CONTEXT_KEYS
-        if self._get_airflow_version_from_target_env():
+        if self.expect_airflow and self._get_airflow_version_from_target_env():
             yield from self.AIRFLOW_SERIALIZABLE_CONTEXT_KEYS
             yield from self.PENDULUM_SERIALIZABLE_CONTEXT_KEYS
         elif self._is_pendulum_installed_in_target_env():
@@ -1092,7 +1150,7 @@ class ExternalPythonOperator(_BasePythonVirtualenvOperator):
             return None
 
 
-class BranchExternalPythonOperator(ExternalPythonOperator, BranchMixIn):
+class BranchExternalPythonOperator(BaseBranchOperator, ExternalPythonOperator):
     """
     A workflow can "branch" or follow a path after the execution of this task.
 
@@ -1105,8 +1163,8 @@ class BranchExternalPythonOperator(ExternalPythonOperator, BranchMixIn):
         :ref:`howto/operator:BranchExternalPythonOperator`
     """
 
-    def execute(self, context: Context) -> Any:
-        return self.do_branch(context, super().execute(context))
+    def choose_branch(self, context: Context) -> str | Iterable[str]:
+        return ExternalPythonOperator.execute(self, context)
 
 
 def get_current_context() -> Mapping[str, Any]:
@@ -1137,6 +1195,13 @@ def get_current_context() -> Mapping[str, Any]:
     was starting to execute.
     """
     if AIRFLOW_V_3_0_PLUS:
+        warnings.warn(
+            "Using get_current_context from standard provider is deprecated and will be removed."
+            "Please import `from airflow.sdk import get_current_context` and use it instead.",
+            AirflowProviderDeprecationWarning,
+            stacklevel=2,
+        )
+
         from airflow.sdk import get_current_context
 
         return get_current_context()

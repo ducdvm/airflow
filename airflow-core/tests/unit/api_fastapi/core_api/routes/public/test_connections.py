@@ -27,7 +27,7 @@ from airflow.secrets.environment_variables import CONN_ENV_PREFIX
 from airflow.utils.session import provide_session
 
 from tests_common.test_utils.api_fastapi import _check_last_log
-from tests_common.test_utils.db import clear_db_connections, clear_db_logs
+from tests_common.test_utils.db import clear_db_connections, clear_db_logs, clear_test_connections
 from tests_common.test_utils.markers import skip_if_force_lowest_dependencies_marker
 
 pytestmark = pytest.mark.db_test
@@ -84,6 +84,7 @@ def _create_connections(session) -> None:
 class TestConnectionEndpoint:
     @pytest.fixture(autouse=True)
     def setup(self) -> None:
+        clear_test_connections(False)
         clear_db_connections(False)
         clear_db_logs()
 
@@ -421,6 +422,27 @@ class TestPatchConnection(TestConnectionEndpoint):
                     "host": TEST_CONN_HOST,
                     "login": "test_login_patch",
                     "password": "test_password_patch",
+                    "port": 80,
+                    "schema": None,
+                },
+            ),
+            (
+                # Sensitive "***" should be ignored.
+                {
+                    "connection_id": TEST_CONN_ID,
+                    "conn_type": TEST_CONN_TYPE,
+                    "port": 80,
+                    "login": "test_login_patch",
+                    "password": "***",
+                },
+                {
+                    "conn_type": TEST_CONN_TYPE,
+                    "connection_id": TEST_CONN_ID,
+                    "description": TEST_CONN_DESCRIPTION,
+                    "extra": None,
+                    "host": TEST_CONN_HOST,
+                    "login": "test_login_patch",
+                    "password": None,
                     "port": 80,
                     "schema": None,
                 },
@@ -864,8 +886,7 @@ class TestBulkConnections(TestConnectionEndpoint):
     @pytest.mark.parametrize(
         "actions, expected_results",
         [
-            # Test successful create
-            (
+            pytest.param(
                 {
                     "actions": [
                         {
@@ -886,9 +907,9 @@ class TestBulkConnections(TestConnectionEndpoint):
                         "errors": [],
                     }
                 },
+                id="test_successful_create",
             ),
-            # Test successful create with skip
-            (
+            pytest.param(
                 {
                     "actions": [
                         {
@@ -913,9 +934,9 @@ class TestBulkConnections(TestConnectionEndpoint):
                         "errors": [],
                     }
                 },
+                id="test_successful_create_with_skip",
             ),
-            # Test create with overwrite
-            (
+            pytest.param(
                 {
                     "actions": [
                         {
@@ -937,9 +958,9 @@ class TestBulkConnections(TestConnectionEndpoint):
                         "errors": [],
                     }
                 },
+                id="test_create_with_overwrite",
             ),
-            # Test create conflict
-            (
+            pytest.param(
                 {
                     "actions": [
                         {
@@ -969,9 +990,9 @@ class TestBulkConnections(TestConnectionEndpoint):
                         ],
                     }
                 },
+                id="test_create_conflict",
             ),
-            # Test successful update
-            (
+            pytest.param(
                 {
                     "actions": [
                         {
@@ -993,9 +1014,9 @@ class TestBulkConnections(TestConnectionEndpoint):
                         "errors": [],
                     }
                 },
+                id="test_successful_update",
             ),
-            # Test update with skip
-            (
+            pytest.param(
                 {
                     "actions": [
                         {
@@ -1016,9 +1037,9 @@ class TestBulkConnections(TestConnectionEndpoint):
                         "errors": [],
                     }
                 },
+                id="test_update_with_skip",
             ),
-            # Test update with fail
-            (
+            pytest.param(
                 {
                     "actions": [
                         {
@@ -1044,9 +1065,9 @@ class TestBulkConnections(TestConnectionEndpoint):
                         ],
                     }
                 },
+                id="test_update_with_fail",
             ),
-            # Test successful delete
-            (
+            pytest.param(
                 {
                     "actions": [
                         {
@@ -1061,9 +1082,9 @@ class TestBulkConnections(TestConnectionEndpoint):
                         "errors": [],
                     }
                 },
+                id="test_successful_delete",
             ),
-            # Test delete with skip
-            (
+            pytest.param(
                 {
                     "actions": [
                         {
@@ -1079,9 +1100,9 @@ class TestBulkConnections(TestConnectionEndpoint):
                         "errors": [],
                     }
                 },
+                id="test_delete_with_skip",
             ),
-            # Test delete not found
-            (
+            pytest.param(
                 {
                     "actions": [
                         {
@@ -1102,9 +1123,9 @@ class TestBulkConnections(TestConnectionEndpoint):
                         ],
                     }
                 },
+                id="test_delete_not_found",
             ),
-            # Test Create, Update, Delete
-            (
+            pytest.param(
                 {
                     "actions": [
                         {
@@ -1149,6 +1170,7 @@ class TestBulkConnections(TestConnectionEndpoint):
                         "errors": [],
                     },
                 },
+                id="test_create_update_delete",
             ),
         ],
     )
@@ -1165,5 +1187,62 @@ class TestBulkConnections(TestConnectionEndpoint):
         assert response.status_code == 401
 
     def test_should_respond_403(self, unauthorized_test_client):
-        response = unauthorized_test_client.patch("/connections", json={})
+        response = unauthorized_test_client.patch(
+            "/connections",
+            json={
+                "actions": [
+                    {
+                        "action": "create",
+                        "entities": [
+                            {"connection_id": "test1", "conn_type": "test1"},
+                        ],
+                    },
+                ]
+            },
+        )
         assert response.status_code == 403
+
+
+class TestPostConnectionExtraBackwardCompatibility(TestConnectionEndpoint):
+    def test_post_should_accept_empty_string_as_extra(self, test_client, session):
+        body = {"connection_id": TEST_CONN_ID, "conn_type": TEST_CONN_TYPE, "extra": ""}
+
+        response = test_client.post("/connections", json=body)
+        assert response.status_code == 201
+
+        connection = session.query(Connection).filter_by(conn_id=TEST_CONN_ID).first()
+        assert connection is not None
+        assert connection.extra == "{}"  # Backward compatibility: treat "" as empty JSON object
+
+    @pytest.mark.parametrize(
+        "extra, expected_error_message",
+        [
+            ("[1,2,3]", "Expected JSON object in `extra` field, got non-dict JSON"),
+            ("some_string", "Encountered non-JSON in `extra` field"),
+        ],
+    )
+    def test_post_should_fail_with_non_json_object_as_extra(
+        self, test_client, extra, expected_error_message, session
+    ):
+        """JSON primitives are a valid JSON and should raise 422 validation error."""
+        body = {"connection_id": TEST_CONN_ID, "conn_type": TEST_CONN_TYPE, "extra": extra}
+
+        response = test_client.post("/connections", json=body)
+        assert response.status_code == 422
+        assert (
+            "Value error, The `extra` field must be a valid JSON object (e.g., {'key': 'value'})"
+            in response.json()["detail"][0]["msg"]
+        )
+
+        _check_last_log(
+            session,
+            dag_id=None,
+            event="post_connection",
+            logical_date=None,
+            expected_extra={
+                "connection_id": "test_connection_id",
+                "conn_type": "test_type",
+                "extra": expected_error_message,
+                "method": "POST",
+            },
+        )

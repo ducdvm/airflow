@@ -18,11 +18,10 @@
 from __future__ import annotations
 
 import logging
-import sys
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request, Response, status
-from pydantic import BaseModel, JsonValue
+from pydantic import BaseModel, JsonValue, StringConstraints
 from sqlalchemy import delete
 from sqlalchemy.sql.selectable import Select
 
@@ -77,7 +76,6 @@ async def xcom_query(
     run_id: str,
     task_id: str,
     key: str,
-    session: SessionDep,
     map_index: Annotated[int | None, Query()] = None,
 ) -> Select:
     query = XComModel.get_many(
@@ -86,7 +84,6 @@ async def xcom_query(
         task_ids=task_id,
         dag_ids=dag_id,
         map_indexes=map_index,
-        session=session,
     )
     return query
 
@@ -141,7 +138,7 @@ def get_xcom(
     dag_id: str,
     run_id: str,
     task_id: str,
-    key: str,
+    key: Annotated[str, StringConstraints(min_length=1)],
     session: SessionDep,
     params: Annotated[GetXcomFilterParams, Query()],
 ) -> XComResponse:
@@ -152,23 +149,22 @@ def get_xcom(
         task_ids=task_id,
         dag_ids=dag_id,
         include_prior_dates=params.include_prior_dates,
-        session=session,
     )
     if params.offset is not None:
-        xcom_query = xcom_query.filter(XComModel.value.is_not(None)).order_by(None)
+        xcom_query = xcom_query.where(XComModel.value.is_not(None)).order_by(None)
         if params.offset >= 0:
             xcom_query = xcom_query.order_by(XComModel.map_index.asc()).offset(params.offset)
         else:
             xcom_query = xcom_query.order_by(XComModel.map_index.desc()).offset(-1 - params.offset)
     else:
-        xcom_query = xcom_query.filter(XComModel.map_index == params.map_index)
+        xcom_query = xcom_query.where(XComModel.map_index == params.map_index)
 
     # We use `BaseXCom.get_many` to fetch XComs directly from the database, bypassing the XCom Backend.
     # This avoids deserialization via the backend (e.g., from a remote storage like S3) and instead
     # retrieves the raw serialized value from the database. By not relying on `XCom.get_many` or `XCom.get_one`
     # (which automatically deserializes using the backend), we avoid potential
     # performance hits from retrieving large data files into the API server.
-    result = xcom_query.limit(1).first()
+    result = session.scalars(xcom_query).first()
     if result is None:
         if params.offset is None:
             message = (
@@ -205,7 +201,6 @@ def get_mapped_xcom_by_index(
         key=key,
         task_ids=task_id,
         dag_ids=dag_id,
-        session=session,
     )
     xcom_query = xcom_query.order_by(None)
     if offset >= 0:
@@ -213,7 +208,7 @@ def get_mapped_xcom_by_index(
     else:
         xcom_query = xcom_query.order_by(XComModel.map_index.desc()).offset(-1 - offset)
 
-    if (result := xcom_query.limit(1).first()) is None:
+    if (result := session.scalars(xcom_query).first()) is None:
         message = (
             f"XCom with {key=} {offset=} not found for task {task_id!r} in DAG run {run_id!r} of {dag_id!r}"
         )
@@ -230,6 +225,7 @@ class GetXComSliceFilterParams(BaseModel):
     start: int | None = None
     stop: int | None = None
     step: int | None = None
+    include_prior_dates: bool = False
 
 
 @router.get(
@@ -249,7 +245,7 @@ def get_mapped_xcom_by_slice(
         key=key,
         task_ids=task_id,
         dag_ids=dag_id,
-        session=session,
+        include_prior_dates=params.include_prior_dates,
     )
     query = query.order_by(None)
 
@@ -308,16 +304,10 @@ def get_mapped_xcom_by_slice(
             else:
                 query = query.slice(-stop, -start)
 
-    values = [row.value for row in query.with_entities(XComModel.value)]
+    values = [row.value for row in session.execute(query.with_only_columns(XComModel.value)).all()]
     if step != 1:
         values = values[::step]
     return XComSequenceSliceResponse(values)
-
-
-if sys.version_info < (3, 12):
-    # zmievsa/cadwyn#262
-    # Setting this to "Any" doesn't have any impact on the API as it has to be parsed as valid JSON regardless
-    JsonValue = Any  # type: ignore [misc]
 
 
 # TODO: once we have JWT tokens, then remove dag_id/run_id/task_id from the URL and just use the info in
@@ -330,7 +320,8 @@ def set_xcom(
     dag_id: str,
     run_id: str,
     task_id: str,
-    key: str,
+    key: Annotated[str, StringConstraints(min_length=1)],
+    session: SessionDep,
     value: Annotated[
         JsonValue,
         Body(
@@ -350,8 +341,7 @@ def set_xcom(
                 },
             },
         ),
-    ],
-    session: SessionDep,
+    ] = None,
     map_index: Annotated[int, Query()] = -1,
     mapped_length: Annotated[
         int | None, Query(description="Number of mapped tasks this value expands into")
@@ -359,6 +349,17 @@ def set_xcom(
 ):
     """Set an Airflow XCom."""
     from airflow.configuration import conf
+
+    # Validate that the provided key is not empty
+    # XCom keys must be non-empty strings to ensure proper data retrieval and avoid ambiguity.
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "reason": "invalid_key",
+                "message": "XCom key must be a non-empty string.",
+            },
+        )
 
     if mapped_length is not None:
         task_map = TaskMap(

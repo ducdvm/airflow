@@ -34,13 +34,16 @@ from airflow.exceptions import (
     DagNotFound,
     DagRunAlreadyExists,
 )
-from airflow.models import BaseOperator
 from airflow.models.dag import DagModel
-from airflow.models.dagbag import DagBag
 from airflow.models.dagrun import DagRun
+from airflow.models.serialized_dag import SerializedDagModel
 from airflow.providers.standard.triggers.external_task import DagStateTrigger
-from airflow.providers.standard.version_compat import AIRFLOW_V_3_0_PLUS
-from airflow.utils import timezone
+from airflow.providers.standard.version_compat import (
+    AIRFLOW_V_3_0_PLUS,
+    BaseOperator,
+    BaseOperatorLink,
+    timezone,
+)
 from airflow.utils.state import DagRunState
 from airflow.utils.types import NOTSET, ArgNotSet, DagRunType
 
@@ -60,11 +63,20 @@ if TYPE_CHECKING:
         from airflow.utils.context import Context
 
 if AIRFLOW_V_3_0_PLUS:
-    from airflow.sdk import BaseOperatorLink
     from airflow.sdk.execution_time.xcom import XCom
 else:
-    from airflow.models import XCom  # type: ignore[no-redef]
-    from airflow.models.baseoperatorlink import BaseOperatorLink  # type: ignore[no-redef]
+    from airflow.models import XCom
+
+
+class DagIsPaused(AirflowException):
+    """Raise when a dag is paused and something tries to run it."""
+
+    def __init__(self, dag_id: str) -> None:
+        super().__init__(dag_id)
+        self.dag_id = dag_id
+
+    def __str__(self) -> str:
+        return f"Dag {self.dag_id} is paused"
 
 
 class TriggerDagRunLink(BaseOperatorLink):
@@ -129,6 +141,7 @@ class TriggerDagRunOperator(BaseOperator):
         Default is ``[DagRunState.FAILED]``.
     :param skip_when_already_exists: Set to true to mark the task as SKIPPED if a DAG run of the triggered
         DAG for the same logical date already exists.
+    :param fail_when_dag_is_paused: If the dag to trigger is paused, DagIsPaused will be raised.
     :param deferrable: If waiting for completion, whether or not to defer the task until done,
         default is ``False``.
     """
@@ -158,6 +171,7 @@ class TriggerDagRunOperator(BaseOperator):
         allowed_states: list[str | DagRunState] | None = None,
         failed_states: list[str | DagRunState] | None = None,
         skip_when_already_exists: bool = False,
+        fail_when_dag_is_paused: bool = False,
         deferrable: bool = conf.getboolean("operators", "default_deferrable", fallback=False),
         **kwargs,
     ) -> None:
@@ -177,6 +191,7 @@ class TriggerDagRunOperator(BaseOperator):
         else:
             self.failed_states = [DagRunState.FAILED]
         self.skip_when_already_exists = skip_when_already_exists
+        self.fail_when_dag_is_paused = fail_when_dag_is_paused
         self._defer = deferrable
         self.logical_date = logical_date
         if logical_date is NOTSET:
@@ -213,6 +228,13 @@ class TriggerDagRunOperator(BaseOperator):
                 )
             else:
                 run_id = DagRun.generate_run_id(DagRunType.MANUAL, parsed_logical_date or timezone.utcnow())  # type: ignore[misc,call-arg]
+
+        if self.fail_when_dag_is_paused:
+            dag_model = DagModel.get_current(self.trigger_dag_id)
+            if dag_model.is_paused:
+                if AIRFLOW_V_3_0_PLUS:
+                    raise DagIsPaused(dag_id=self.trigger_dag_id)
+                raise AirflowException(f"Dag {self.trigger_dag_id} is paused")
 
         if AIRFLOW_V_3_0_PLUS:
             self._trigger_dag_af_3(context=context, run_id=run_id, parsed_logical_date=parsed_logical_date)
@@ -257,8 +279,7 @@ class TriggerDagRunOperator(BaseOperator):
                     raise DagNotFound(f"Dag id {self.trigger_dag_id} not found in DagModel")
 
                 # Note: here execution fails on database isolation mode. Needs structural changes for AIP-72
-                dag_bag = DagBag(dag_folder=dag_model.fileloc, read_dags_from_db=True)
-                dag = dag_bag.get_dag(self.trigger_dag_id)
+                dag = SerializedDagModel.get_dag(self.trigger_dag_id)
                 dag.clear(start_date=dag_run.logical_date, end_date=dag_run.logical_date)
             else:
                 if self.skip_when_already_exists:

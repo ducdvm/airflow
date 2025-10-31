@@ -22,17 +22,6 @@ FAB auth manager UI security options
     This guide only applies to FAB auth manager UI pages. These pages are accessible under category "Security" in the
     menu.
 
-Disable Deployment Exposure Warning
----------------------------------------
-
-Airflow warns when recent requests are made to ``/robots.txt``. To disable this warning set ``warn_deployment_exposure`` to
-``False`` as below:
-
-.. code-block:: ini
-
-    [webserver]
-    warn_deployment_exposure = False
-
 Sensitive Variable fields
 -------------------------
 

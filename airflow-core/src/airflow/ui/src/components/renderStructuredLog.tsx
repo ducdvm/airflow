@@ -17,9 +17,12 @@
  * under the License.
  */
 import { chakra, Code, Link } from "@chakra-ui/react";
+import type { TFunction } from "i18next";
+import * as React from "react";
 import { Link as RouterLink } from "react-router-dom";
 
 import type { StructuredLogMessage } from "openapi/requests/types.gen";
+import AnsiRenderer from "src/components/AnsiRenderer";
 import Time from "src/components/Time";
 import { urlRegex } from "src/constants/urlRegex";
 import { LogLevel, logLevelColorMapping } from "src/utils/logs";
@@ -44,31 +47,40 @@ type RenderStructuredLogProps = {
   logLevelFilters?: Array<string>;
   logLink: string;
   logMessage: string | StructuredLogMessage;
+  showSource?: boolean;
+  showTimestamp?: boolean;
   sourceFilters?: Array<string>;
+  translate: TFunction;
 };
 
-const addLinks = (line: string) => {
-  const matches = [...line.matchAll(urlRegex)];
-  let currentIndex = 0;
-  const elements: Array<JSX.Element | string> = [];
+const addAnsiWithLinks = (line: string) => {
+  const urlMatches = [...line.matchAll(urlRegex)];
 
-  if (!matches.length) {
-    return line;
+  if (!urlMatches.length) {
+    return <AnsiRenderer linkify={false}>{line}</AnsiRenderer>;
   }
 
-  matches.forEach((match) => {
-    const startIndex = match.index;
+  let currentIndex = 0;
+  const elements: Array<React.ReactNode> = [];
 
-    // Add text before the URL
+  urlMatches.forEach((match) => {
+    const { index: startIndex } = match;
+
     if (startIndex > currentIndex) {
-      elements.push(line.slice(currentIndex, startIndex));
+      const textBeforeUrl = line.slice(currentIndex, startIndex);
+
+      elements.push(
+        <AnsiRenderer key={`ansi-before-${textBeforeUrl}`} linkify={false}>
+          {textBeforeUrl}
+        </AnsiRenderer>,
+      );
     }
 
     elements.push(
       <Link
         color="fg.info"
         href={match[0]}
-        key={match[0]}
+        key={`link-${match[0]}-${startIndex}`}
         rel="noopener noreferrer"
         target="_blank"
         textDecoration="underline"
@@ -80,25 +92,35 @@ const addLinks = (line: string) => {
     currentIndex = startIndex + match[0].length;
   });
 
-  // Add remaining text after the last URL
   if (currentIndex < line.length) {
-    elements.push(line.slice(currentIndex));
+    const textAfterUrl = line.slice(currentIndex);
+
+    elements.push(
+      <AnsiRenderer key="ansi-after" linkify={false}>
+        {textAfterUrl}
+      </AnsiRenderer>,
+    );
   }
 
   return elements;
 };
+
+const sourceFields = ["logger", "chan", "lineno", "filename", "loc"];
 
 export const renderStructuredLog = ({
   index,
   logLevelFilters,
   logLink,
   logMessage,
+  showSource = true,
+  showTimestamp = true,
   sourceFilters,
+  translate,
 }: RenderStructuredLogProps) => {
   if (typeof logMessage === "string") {
     return (
       <chakra.span key={index} lineHeight={1.5}>
-        {addLinks(logMessage)}
+        {addAnsiWithLinks(logMessage)}
       </chakra.span>
     );
   }
@@ -124,7 +146,7 @@ export const renderStructuredLog = ({
     return "";
   }
 
-  if (Boolean(timestamp)) {
+  if (Boolean(timestamp) && showTimestamp) {
     elements.push("[", <Time datetime={timestamp} key={0} />, "] ");
   }
 
@@ -150,13 +172,14 @@ export const renderStructuredLog = ({
     details = (errorDetail as Array<ErrorDetail>).map((error) => {
       const errorLines = error.frames.map((frame) => (
         <chakra.p key={`frame-${frame.name}-${frame.filename}-${frame.lineno}`}>
-          File <chakra.span color="fg.info">{JSON.stringify(frame.filename)}</chakra.span>, line{" "}
-          {frame.lineno} in {frame.name}
+          {translate("components:logs.file")}{" "}
+          <chakra.span color="fg.info">{JSON.stringify(frame.filename)}</chakra.span>,{" "}
+          {translate("components:logs.location", { line: frame.lineno, name: frame.name })}
         </chakra.p>
       ));
 
       return (
-        <chakra.details key={error.exc_type} ml="20em" open={true}>
+        <chakra.details key={error.exc_type} ms="20em" open={true}>
           <chakra.summary data-testid={`summary-${error.exc_type}`}>
             <chakra.span color="fg.info" cursor="pointer">
               {error.exc_type}: {error.exc_value}
@@ -170,17 +193,35 @@ export const renderStructuredLog = ({
 
   elements.push(
     <chakra.span className="event" key={2} whiteSpace="pre-wrap">
-      {addLinks(event)}
+      {addAnsiWithLinks(event)}
     </chakra.span>,
   );
 
+  if (Object.hasOwn(reStructured, "filename") && Object.hasOwn(reStructured, "lineno")) {
+    // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+    reStructured.loc = `${reStructured.filename}:${reStructured.lineno}`;
+    delete reStructured.filename;
+    delete reStructured.lineno;
+  }
+
   for (const key in reStructured) {
     if (Object.hasOwn(reStructured, key)) {
+      if (!showSource && sourceFields.includes(key)) {
+        continue; // eslint-disable-line no-continue
+      }
+      const val = reStructured[key] as boolean | number | object | string | null;
+
       elements.push(
-        ": ",
-        <chakra.span color={key === "logger" ? "fg.info" : undefined} key={`prop_${key}`}>
-          {key === "logger" ? "source" : key}={JSON.stringify(reStructured[key])}
-        </chakra.span>,
+        <React.Fragment key={`space_${key}`}> </React.Fragment>,
+        <span data-key={key} key={`struct_${key}`}>
+          <chakra.span color="fg.info">{key === "logger" ? "source" : key}</chakra.span>=
+          <span data-value>
+            {
+              // Let strings, ints, etc through as is, but JSON stringify anything more complex
+              val instanceof Object ? JSON.stringify(val) : val
+            }
+          </span>
+        </span>,
       );
     }
   }
@@ -199,9 +240,9 @@ export const renderStructuredLog = ({
         style={{
           display: "inline-block",
           flexShrink: 0,
-          marginRight: "10px",
-          paddingRight: "5px",
-          textAlign: "right",
+          marginInlineEnd: "10px",
+          paddingInlineEnd: "5px",
+          textAlign: "end",
           userSelect: "none",
           WebkitUserSelect: "none",
           width: "3em",

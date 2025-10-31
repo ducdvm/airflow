@@ -160,7 +160,6 @@ PKG-INFO
 # Openapi files
 .openapi-generator-ignore
 version.txt
-v1*.yaml
 v2*.yaml
 _private_ui*.yaml
 
@@ -175,3 +174,11 @@ auth_generated.py
 
 # hash files
 www-hash.txt
+
+# go setup files
+go.mod
+go.sum
+mocks/*
+
+# Kubernetes env
+.env

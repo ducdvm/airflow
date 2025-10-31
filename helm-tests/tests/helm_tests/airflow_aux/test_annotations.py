@@ -73,17 +73,17 @@ class TestServiceAccountAnnotations:
             ),
             (
                 {
-                    "webserver": {
+                    "apiServer": {
                         "serviceAccount": {
                             "annotations": {
-                                "example": "webserver",
+                                "example": "api-server",
                             },
                         },
                     },
                 },
-                "templates/webserver/webserver-serviceaccount.yaml",
+                "templates/api-server/api-server-serviceaccount.yaml",
                 {
-                    "example": "webserver",
+                    "example": "api-server",
                 },
             ),
             (
@@ -97,6 +97,90 @@ class TestServiceAccountAnnotations:
                     },
                 },
                 "templates/workers/worker-serviceaccount.yaml",
+                {
+                    "example": "worker",
+                },
+            ),
+            (
+                {
+                    "workers": {
+                        "useWorkerDedicatedServiceAccounts": True,
+                        "celery": {
+                            "serviceAccount": {
+                                "annotations": {
+                                    "example": "worker",
+                                },
+                            },
+                        },
+                    },
+                },
+                "templates/workers/worker-celery-serviceaccount.yaml",
+                {
+                    "example": "worker",
+                },
+            ),
+            (
+                {
+                    "workers": {
+                        "useWorkerDedicatedServiceAccounts": True,
+                        "serviceAccount": {
+                            "annotations": {
+                                "example": "missing",
+                            },
+                        },
+                        "celery": {
+                            "serviceAccount": {
+                                "annotations": {
+                                    "example": "worker",
+                                },
+                            },
+                        },
+                    },
+                },
+                "templates/workers/worker-celery-serviceaccount.yaml",
+                {
+                    "example": "worker",
+                },
+            ),
+            (
+                {
+                    "executor": "KubernetesExecutor",
+                    "workers": {
+                        "useWorkerDedicatedServiceAccounts": True,
+                        "kubernetes": {
+                            "serviceAccount": {
+                                "annotations": {
+                                    "example": "worker",
+                                },
+                            },
+                        },
+                    },
+                },
+                "templates/workers/worker-kubernetes-serviceaccount.yaml",
+                {
+                    "example": "worker",
+                },
+            ),
+            (
+                {
+                    "executor": "KubernetesExecutor",
+                    "workers": {
+                        "useWorkerDedicatedServiceAccounts": True,
+                        "serviceAccount": {
+                            "annotations": {
+                                "example": "missing",
+                            },
+                        },
+                        "kubernetes": {
+                            "serviceAccount": {
+                                "annotations": {
+                                    "example": "worker",
+                                },
+                            },
+                        },
+                    },
+                },
+                "templates/workers/worker-kubernetes-serviceaccount.yaml",
                 {
                     "example": "worker",
                 },
@@ -243,6 +327,27 @@ class TestServiceAccountAnnotations:
             assert k in obj["metadata"]["annotations"]
             assert v == obj["metadata"]["annotations"][k]
 
+    def test_annotations_on_webserver(self):
+        """Test annotations are added on webserver for Airflow 1 & 2"""
+        k8s_objects = render_chart(
+            values={
+                "airflowVersion": "2.10.0",
+                "webserver": {
+                    "serviceAccount": {
+                        "annotations": {
+                            "example": "webserver",
+                        },
+                    },
+                },
+            },
+            show_only=["templates/webserver/webserver-serviceaccount.yaml"],
+        )
+
+        assert len(k8s_objects) == 1
+        obj = k8s_objects[0]
+
+        assert obj["metadata"]["annotations"] == {"example": "webserver"}
+
 
 @pytest.mark.parametrize(
     "values,show_only,expected_annotations",
@@ -262,15 +367,15 @@ class TestServiceAccountAnnotations:
         ),
         (
             {
-                "webserver": {
+                "apiServer": {
                     "podAnnotations": {
-                        "example": "webserver",
+                        "example": "api-server",
                     },
                 },
             },
-            "templates/webserver/webserver-deployment.yaml",
+            "templates/api-server/api-server-deployment.yaml",
             {
-                "example": "webserver",
+                "example": "api-server",
             },
         ),
         (

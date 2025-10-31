@@ -44,6 +44,16 @@ from unit.microsoft.azure.test_utils import (
     mock_response,
 )
 
+try:
+    import importlib.util
+
+    if not importlib.util.find_spec("airflow.sdk.bases.hook"):
+        raise ImportError
+
+    BASEHOOK_PATCH_PATH = "airflow.sdk.bases.hook.BaseHook"
+except ImportError:
+    BASEHOOK_PATCH_PATH = "airflow.hooks.base.BaseHook"
+
 
 class TestMSGraphTrigger(Base):
     def test_run_when_valid_response(self):
@@ -104,11 +114,17 @@ class TestMSGraphTrigger(Base):
 
     def test_serialize(self):
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=get_airflow_connection,
         ):
             url = "https://graph.microsoft.com/v1.0/me/drive/items"
-            trigger = MSGraphTrigger(url, response_type="bytes", conn_id="msgraph_api")
+            trigger = MSGraphTrigger(
+                url,
+                response_type="bytes",
+                conn_id="msgraph_api",
+                scopes=[KiotaRequestAdapterHook.DEFAULT_SCOPE],
+                api_version=APIVersion.v1.value,
+            )
 
             actual = trigger.serialize()
 

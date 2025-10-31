@@ -25,17 +25,15 @@ pytestmark = pytest.mark.db_test
 mock_config_response = {
     "page_size": 100,
     "auto_refresh_interval": 3,
-    "hide_paused_dags_by_default": False,
+    "hide_paused_dags_by_default": True,
     "instance_name": "Airflow",
-    "instance_name_has_markup": False,
     "enable_swagger_ui": True,
     "require_confirmation_dag_change": False,
     "default_wrap": False,
-    "warn_deployment_exposure": False,
-    "audit_view_excluded_events": "",
-    "audit_view_included_events": "",
     "test_connection": "Disabled",
     "dashboard_alert": [],
+    "show_external_log_redirect": False,
+    "external_log_name": None,
 }
 
 
@@ -46,17 +44,13 @@ def mock_config_data():
     """
     with conf_vars(
         {
-            ("webserver", "page_size"): "100",
-            ("webserver", "auto_refresh_interval"): "3",
-            ("webserver", "hide_paused_dags_by_default"): "false",
-            ("webserver", "instance_name"): "Airflow",
-            ("webserver", "instance_name_has_markup"): "false",
+            ("api", "instance_name"): "Airflow",
             ("api", "enable_swagger_ui"): "true",
-            ("webserver", "require_confirmation_dag_change"): "false",
-            ("webserver", "default_wrap"): "false",
-            ("webserver", "audit_view_excluded_events"): "",
-            ("webserver", "audit_view_included_events"): "",
-            ("webserver", "warn_deployment_exposure"): "false",
+            ("api", "hide_paused_dags_by_default"): "true",
+            ("api", "page_size"): "100",
+            ("api", "default_wrap"): "false",
+            ("api", "auto_refresh_interval"): "3",
+            ("api", "require_confirmation_dag_change"): "false",
         }
     ):
         yield

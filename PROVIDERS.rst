@@ -145,6 +145,10 @@ classification, whether there are breaking changes, new features or just bugs co
 Upgrading Minimum supported version of Airflow
 ----------------------------------------------
 
+.. note::
+
+   The following policy applies for Airflow 2. It has not yet been finalized for Airflow 3 and is subject to changes.
+
 One of the important limitations of the Providers released by the community is that we introduce the limit
 of a minimum supported version of Airflow. The minimum version of Airflow is the ``MINOR`` version (2.4, 2.5 etc.)
 indicating that the providers might use features that appeared in this release. The default support timespan
@@ -153,8 +157,8 @@ Airflow version to the next MINOR release, when 12 months passed since the first
 MINOR version of Airflow.
 
 For example this means that by default we upgrade the minimum version of Airflow supported by providers
-to 2.9.0 in the first Provider's release after 8th of April 2025. 8th of April 2024 is the date when the
-first ``PATCHLEVEL`` of 2.9 (2.9.0) has been released.
+to 3.0.0 in the first Provider's release after 22nd of April 2026. 22nd of April 2025 is the date when the
+first ``PATCHLEVEL``  version of 3.0 (3.0.0) was released.
 
 When we increase the minimum Airflow version, this is not a reason to bump ``MAJOR`` version of the providers
 (unless there are other breaking changes in the provider). The reason for that is that people who use
@@ -344,5 +348,5 @@ The dependencies for Airflow providers are managed in the ``provider.yaml`` file
 All provider dependencies, including versions and constraints, are listed in this file.
 When adding or updating a provider or its dependencies, changes should be made to this file accordingly.
 
-To ensure consistency and manage dependencies, ``pre-commit`` is configured to automatically update all dependencies.
-Once you have ``pre-commit`` installed, it will automatically handle the dependency updates.
+To ensure consistency and manage dependencies, ``prek`` is configured to automatically update all dependencies.
+Once you have ``prek`` installed, it will automatically handle the dependency updates.

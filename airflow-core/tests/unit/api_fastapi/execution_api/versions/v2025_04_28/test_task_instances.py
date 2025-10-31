@@ -21,8 +21,9 @@ from unittest.mock import patch
 
 import pytest
 
-from airflow.api_fastapi.common.dagbag import create_dag_bag, dag_bag_from_app
-from airflow.utils import timezone
+from airflow._shared.timezones import timezone
+from airflow.api_fastapi.common.dagbag import dag_bag_from_app
+from airflow.models.dagbag import DBDagBag
 from airflow.utils.state import State
 
 from tests_common.test_utils.db import clear_db_assets, clear_db_runs
@@ -86,6 +87,7 @@ class TestTIUpdateState:
         time_machine,
         mock_indexes,
         expected_response_indexes,
+        get_execution_app,
     ):
         """
         Test that this version of the endpoint works.
@@ -105,10 +107,8 @@ class TestTIUpdateState:
             start_date=instant,
         )
 
-        dag = ti.task.dag
-        dagbag = create_dag_bag()
-        dagbag.dags = {dag.dag_id: dag}
-        execution_app = next(route.app for route in ver_client.app.routes if route.path == "/execution")
+        dagbag = DBDagBag()
+        execution_app = get_execution_app(ver_client)
         execution_app.dependency_overrides[dag_bag_from_app] = lambda: dagbag
         session.commit()
 

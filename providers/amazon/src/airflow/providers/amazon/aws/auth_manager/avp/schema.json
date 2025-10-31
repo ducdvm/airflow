@@ -1,6 +1,66 @@
 {
     "Airflow": {
         "actions": {
+            "Asset.GET": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Asset"]
+                }
+            },
+            "Asset.LIST": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Asset"]
+                }
+            },
+            "Asset.POST": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Asset"]
+                }
+            },
+            "Asset.DELETE": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Asset"]
+                }
+            },
+            "AssetAlias.GET": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["AssetAlias"]
+                }
+            },
+            "AssetAlias.LIST": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["AssetAlias"]
+                }
+            },
+            "Backfill.GET": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Backfill"]
+                }
+            },
+            "Backfill.LIST": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Backfill"]
+                }
+            },
+            "Backfill.POST": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Backfill"]
+                }
+            },
+            "Backfill.PUT": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Backfill"]
+                }
+            },
             "Connection.DELETE": {
                 "appliesTo": {
                     "principalTypes": ["User"],
@@ -8,6 +68,12 @@
                 }
             },
             "Connection.GET": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Connection"]
+                }
+            },
+            "Connection.LIST": {
                 "appliesTo": {
                     "principalTypes": ["User"],
                     "resourceTypes": ["Connection"]
@@ -37,6 +103,12 @@
                     "resourceTypes": ["Custom"]
                 }
             },
+            "Custom.LIST": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Custom"]
+                }
+            },
             "Custom.POST": {
                 "appliesTo": {
                     "principalTypes": ["User"],
@@ -50,6 +122,12 @@
                 }
             },
             "Configuration.GET": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Configuration"]
+                }
+            },
+            "Configuration.LIST": {
                 "appliesTo": {
                     "principalTypes": ["User"],
                     "resourceTypes": ["Configuration"]
@@ -71,6 +149,21 @@
                 }
             },
             "Dag.GET": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Dag"],
+                    "context": {
+                        "attributes": {
+                            "dag_entity": {
+                                "required": false,
+                                "type": "String"
+                            }
+                        },
+                        "type": "Record"
+                    }
+                }
+            },
+            "Dag.LIST": {
                 "appliesTo": {
                     "principalTypes": ["User"],
                     "resourceTypes": ["Dag"],
@@ -115,12 +208,6 @@
                     }
                 }
             },
-            "Dataset.GET": {
-                "appliesTo": {
-                    "principalTypes": ["User"],
-                    "resourceTypes": ["Dataset"]
-                }
-            },
             "Menu.MENU": {
                 "appliesTo": {
                     "principalTypes": ["User"],
@@ -134,6 +221,12 @@
                 }
             },
             "Pool.GET": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Pool"]
+                }
+            },
+            "Pool.LIST": {
                 "appliesTo": {
                     "principalTypes": ["User"],
                     "resourceTypes": ["Pool"]
@@ -163,6 +256,12 @@
                     "resourceTypes": ["Variable"]
                 }
             },
+            "Variable.LIST": {
+                "appliesTo": {
+                    "principalTypes": ["User"],
+                    "resourceTypes": ["Variable"]
+                }
+            },
             "Variable.POST": {
                 "appliesTo": {
                     "principalTypes": ["User"],
@@ -183,11 +282,13 @@
             }
         },
         "entityTypes": {
+            "Asset":  {},
+            "AssetAlias":  {},
+            "Backfill":  {},
             "Configuration": {},
             "Connection": {},
             "Custom": {},
             "Dag": {},
-            "Dataset": {},
             "Menu": {},
             "Pool": {},
             "Group": {},

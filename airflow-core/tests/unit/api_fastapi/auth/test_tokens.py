@@ -27,6 +27,7 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
+from airflow._shared.timezones import timezone
 from airflow.api_fastapi.auth.tokens import (
     JWKS,
     InvalidClaimError,
@@ -37,7 +38,6 @@ from airflow.api_fastapi.auth.tokens import (
     key_to_jwk_dict,
     key_to_pem,
 )
-from airflow.utils import timezone
 
 from tests_common.test_utils.config import conf_vars
 
@@ -164,6 +164,8 @@ async def test_task_jwt_generator_validator(
     assert nbf <= now, "not before is in the future"
     assert exp >= now, "expiration is in the past"
     assert exp <= nbf + timedelta(minutes=10), "expiration is more then 10 minutes after not before"
+    assert "jti" in claims, "JWT ID is missing"
+    assert len(claims["jti"]) == 32, "JWT ID is not a valid UUID"
 
     def token_without_claim(claim: str) -> str:
         # remove claim and re-encode

@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { Box, Heading } from "@chakra-ui/react";
+import { Box, Heading, useToken } from "@chakra-ui/react";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -31,11 +31,12 @@ import type { PartialEventContext } from "chartjs-plugin-annotation";
 import annotationPlugin from "chartjs-plugin-annotation";
 import dayjs from "dayjs";
 import { Bar } from "react-chartjs-2";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
 import type { TaskInstanceResponse, GridRunsResponse } from "openapi/requests/types.gen";
-import { system } from "src/theme";
-import { pluralize } from "src/utils";
+import { getComputedCSSVariableValue } from "src/theme";
+import { DEFAULT_DATETIME_FORMAT } from "src/utils/datetimeUtils";
 
 ChartJS.register(
   CategoryScale,
@@ -65,14 +66,32 @@ export const DurationChart = ({
   readonly entries: Array<RunResponse> | undefined;
   readonly kind: "Dag Run" | "Task Instance";
 }) => {
+  const { t: translate } = useTranslation(["components", "common"]);
   const navigate = useNavigate();
+  const [queuedColorToken] = useToken("colors", ["queued.solid"]);
+
+  // Get states and create color tokens for them
+  const states = entries?.map((entry) => entry.state).filter(Boolean) ?? [];
+  const stateColorTokens = useToken(
+    "colors",
+    states.map((state) => `${state}.solid`),
+  );
 
   if (!entries) {
     return undefined;
   }
 
+  // Create a mapping of state to color for easy lookup
+  const stateColorMap: Record<string, string> = {};
+
+  states.forEach((state, index) => {
+    if (state) {
+      stateColorMap[state] = getComputedCSSVariableValue(stateColorTokens[index] ?? "oklch(0.5 0 0)");
+    }
+  });
+
   const runAnnotation = {
-    borderColor: "green",
+    borderColor: "grey",
     borderWidth: 1,
     label: {
       content: (ctx: PartialEventContext) => average(ctx, 1).toFixed(2),
@@ -98,13 +117,15 @@ export const DurationChart = ({
   return (
     <Box>
       <Heading pb={2} size="sm" textAlign="center">
-        Last {pluralize(kind, entries.length)}
+        {kind === "Dag Run"
+          ? translate("durationChart.lastDagRun", { count: entries.length })
+          : translate("durationChart.lastTaskInstance", { count: entries.length })}
       </Heading>
       <Bar
         data={{
           datasets: [
             {
-              backgroundColor: system.tokens.categoryMap.get("colors")?.get("queued.600")?.value as string,
+              backgroundColor: getComputedCSSVariableValue(queuedColorToken ?? "oklch(0.5 0 0)"),
               data: entries.map((entry: RunResponse) => {
                 switch (kind) {
                   case "Dag Run": {
@@ -127,20 +148,20 @@ export const DurationChart = ({
                     return 0;
                 }
               }),
-              label: "Queued duration",
+              label: translate("durationChart.queuedDuration"),
             },
             {
               backgroundColor: entries.map(
                 (entry: RunResponse) =>
-                  system.tokens.categoryMap.get("colors")?.get(`${entry.state}.600`)?.value as string,
+                  (entry.state ? stateColorMap[entry.state] : undefined) ?? "oklch(0.5 0 0)",
               ),
               data: entries.map((entry: RunResponse) =>
                 entry.start_date === null ? 0 : Number(getDuration(entry.start_date, entry.end_date)),
               ),
-              label: "Run duration",
+              label: translate("durationChart.runDuration"),
             },
           ],
-          labels: entries.map((entry: RunResponse) => dayjs(entry.run_after).format("YYYY-MM-DD, hh:mm:ss")),
+          labels: entries.map((entry: RunResponse) => dayjs(entry.run_after).format(DEFAULT_DATETIME_FORMAT)),
         }}
         datasetIdKey="id"
         options={{
@@ -187,10 +208,10 @@ export const DurationChart = ({
               ticks: {
                 maxTicksLimit: 3,
               },
-              title: { align: "end", display: true, text: "Run After" },
+              title: { align: "end", display: true, text: translate("common:dagRun.runAfter") },
             },
             y: {
-              title: { align: "end", display: true, text: "Duration (seconds)" },
+              title: { align: "end", display: true, text: translate("common:duration") },
             },
           },
         }}

@@ -51,7 +51,7 @@ airflow core. If you plan to work on providers, at this time you can install dep
 
       $ uv sync --all-packages
 
-Or for specific provider and it's cross-provider dependencies:
+Or for specific provider and its cross-provider dependencies:
 
     .. code-block:: bash
 
@@ -63,7 +63,7 @@ Next: Configure your IDEA project.
    ``module.xml`` file using the ``setup_idea.py`` script:
 
    To setup the source roots for all the modules that exist in the project, you can run the following command:
-   This needs to done on the airflow repository root directory. It overwrites the existing ``.idea/airflow.iml`` and
+   This needs to done on the Airflow repository root directory. It overwrites the existing ``.idea/airflow.iml`` and
    ``.idea/modules.xml`` files if they exist.
 
     .. code-block:: bash
@@ -152,7 +152,7 @@ It requires "airflow-env" virtual environment configured locally.
 - Now set ``sql_alchemy_conn = mysql+pymysql://root:@127.0.0.1:23306/airflow?charset=utf8mb4`` in file
   ``~/airflow/airflow.cfg`` on local machine.
 
-2. Debugging an example DAG
+2. Debugging an example Dag
 
 - Add Interpreter to PyCharm pointing interpreter path to ``~/.pyenv/versions/airflow-env/bin/python``, which is virtual
   environment ``airflow-env`` created with pyenv earlier. For adding an Interpreter go to ``File -> Setting -> Project:
@@ -165,13 +165,13 @@ It requires "airflow-env" virtual environment configured locally.
            alt="Adding existing interpreter">
     </div>
 
-- In PyCharm IDE open airflow project, directory ``/files/dags`` of local machine is by default mounted to docker
-  machine when breeze airflow is started. So any DAG file present in this directory will be picked automatically by
+- In PyCharm IDE open Airflow project, directory ``/files/dags`` of local machine is by default mounted to docker
+  machine when breeze Airflow is started. So any Dag file present in this directory will be picked automatically by
   scheduler running in docker machine and same can be seen on ``http://127.0.0.1:28080``.
 
-- Copy any example DAG present in the ``/airflow/example_dags`` directory to ``/files/dags/``.
+- Copy any example Dag present in the ``/airflow/example_dags`` directory to ``/files/dags/``.
 
-- Add a ``__main__`` block at the end of your DAG file to make it runnable:
+- Add a ``__main__`` block at the end of your Dag file to make it runnable:
 
   .. code-block:: python
 

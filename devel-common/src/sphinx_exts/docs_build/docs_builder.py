@@ -68,6 +68,8 @@ class AirflowDocsBuilder:
             self.is_docker_stack = True
         if self.package_name == "apache-airflow-providers":
             self.is_providers_summary = True
+        if self.package_name == "apache-airflow-ctl":
+            self.is_airflow_ctl = True
 
     @property
     def _doctree_dir(self) -> Path:

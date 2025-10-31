@@ -20,12 +20,16 @@ from __future__ import annotations
 
 import pytest
 
-from airflow.decorators import task
 from airflow.exceptions import AirflowSensorTimeout
 from airflow.sensors.base import PokeReturnValue
 from airflow.utils.state import State
 
 from tests_common.test_utils.version_compat import AIRFLOW_V_3_0_PLUS
+
+if AIRFLOW_V_3_0_PLUS:
+    from airflow.sdk import task
+else:
+    from airflow.decorators import task  # type: ignore[attr-defined,no-redef]
 
 pytestmark = pytest.mark.db_test
 
@@ -35,7 +39,7 @@ pytestmark = pytest.mark.db_test
     reason="Decorators were part of core not providers, so this test doesnt make sense for < AF3.",
 )
 class TestSensorDecorator:
-    def test_sensor_fails_on_none_python_callable(self, dag_maker):
+    def test_sensor_fails_on_none_python_callable(self):
         not_callable = {}
         with pytest.raises(TypeError):
             task.sensor(not_callable)

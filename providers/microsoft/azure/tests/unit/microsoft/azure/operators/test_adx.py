@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from unittest import mock
 
-import pytest
 from azure.kusto.data._models import KustoResultTable
 
 from airflow.models import DAG
@@ -27,6 +26,8 @@ from airflow.providers.microsoft.azure.hooks.adx import AzureDataExplorerHook
 from airflow.providers.microsoft.azure.operators.adx import AzureDataExplorerQueryOperator
 from airflow.providers.microsoft.azure.version_compat import AIRFLOW_V_3_0_PLUS
 from airflow.utils.timezone import datetime
+
+from tests_common.test_utils.version_compat import AIRFLOW_V_3_0_PLUS
 
 TEST_DAG_ID = "unit_tests"
 DEFAULT_DATE = datetime(2019, 1, 1)
@@ -82,7 +83,6 @@ class TestAzureDataExplorerQueryOperator:
         )
 
 
-@pytest.mark.db_test
 @mock.patch.object(AzureDataExplorerHook, "run_query", return_value=MockResponse())
 @mock.patch.object(AzureDataExplorerHook, "get_conn")
 def test_azure_data_explorer_query_operator_xcom_push_and_pull(

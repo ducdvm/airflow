@@ -34,6 +34,12 @@ from starlette.middleware.wsgi import WSGIMiddleware
 from airflow import __version__ as airflow_version
 from airflow.api_fastapi.app import AUTH_MANAGER_FASTAPI_APP_PREFIX
 from airflow.api_fastapi.auth.managers.base_auth_manager import BaseAuthManager
+
+try:
+    from airflow.api_fastapi.auth.managers.base_auth_manager import ExtendedResourceMethod
+except ImportError:
+    from airflow.api_fastapi.auth.managers.base_auth_manager import ResourceMethod as ExtendedResourceMethod
+
 from airflow.api_fastapi.auth.managers.models.resource_details import (
     AccessView,
     BackfillDetails,
@@ -54,12 +60,14 @@ from airflow.exceptions import AirflowConfigException, AirflowException
 from airflow.models import DagModel
 from airflow.providers.fab.auth_manager.cli_commands.definition import (
     DB_COMMANDS,
+    PERMISSIONS_CLEANUP_COMMAND,
     ROLES_COMMANDS,
     SYNC_PERM_COMMAND,
     USERS_COMMANDS,
 )
 from airflow.providers.fab.auth_manager.models import Permission, Role, User
 from airflow.providers.fab.auth_manager.models.anonymous_user import AnonymousUser
+from airflow.providers.fab.version_compat import AIRFLOW_V_3_1_PLUS
 from airflow.providers.fab.www.app import create_app
 from airflow.providers.fab.www.constants import SWAGGER_BUNDLE, SWAGGER_ENABLED
 from airflow.providers.fab.www.extensions.init_views import (
@@ -68,6 +76,7 @@ from airflow.providers.fab.www.extensions.init_views import (
 )
 from airflow.providers.fab.www.security import permissions
 from airflow.providers.fab.www.security.permissions import (
+    ACTION_CAN_READ,
     RESOURCE_AUDIT_LOG,
     RESOURCE_CLUSTER_ACTIVITY,
     RESOURCE_CONFIG,
@@ -75,6 +84,7 @@ from airflow.providers.fab.www.security.permissions import (
     RESOURCE_DAG,
     RESOURCE_DAG_CODE,
     RESOURCE_DAG_DEPENDENCIES,
+    RESOURCE_DAG_PREFIX,
     RESOURCE_DAG_RUN,
     RESOURCE_DAG_VERSION,
     RESOURCE_DAG_WARNING,
@@ -84,10 +94,8 @@ from airflow.providers.fab.www.security.permissions import (
     RESOURCE_PLUGIN,
     RESOURCE_POOL,
     RESOURCE_PROVIDER,
-    RESOURCE_SLA_MISS,
     RESOURCE_TASK_INSTANCE,
     RESOURCE_TASK_LOG,
-    RESOURCE_TASK_RESCHEDULE,
     RESOURCE_TRIGGER,
     RESOURCE_VARIABLE,
     RESOURCE_WEBSITE,
@@ -127,7 +135,6 @@ _MAP_DAG_ACCESS_ENTITY_TO_FAB_RESOURCE_TYPE: dict[DagAccessEntity, tuple[str, ..
     DagAccessEntity.CODE: (RESOURCE_DAG_CODE,),
     DagAccessEntity.DEPENDENCIES: (RESOURCE_DAG_DEPENDENCIES,),
     DagAccessEntity.RUN: (RESOURCE_DAG_RUN,),
-    DagAccessEntity.SLA_MISS: (RESOURCE_SLA_MISS,),
     # RESOURCE_TASK_INSTANCE has been originally misused. RESOURCE_TASK_INSTANCE referred to task definition
     # AND task instances without making the difference
     # To be backward compatible, we translate DagAccessEntity.TASK_INSTANCE to RESOURCE_TASK_INSTANCE AND
@@ -136,7 +143,6 @@ _MAP_DAG_ACCESS_ENTITY_TO_FAB_RESOURCE_TYPE: dict[DagAccessEntity, tuple[str, ..
     DagAccessEntity.TASK: (RESOURCE_TASK_INSTANCE,),
     DagAccessEntity.TASK_INSTANCE: (RESOURCE_DAG_RUN, RESOURCE_TASK_INSTANCE),
     DagAccessEntity.TASK_LOGS: (RESOURCE_TASK_LOG,),
-    DagAccessEntity.TASK_RESCHEDULE: (RESOURCE_TASK_RESCHEDULE,),
     DagAccessEntity.VERSION: (RESOURCE_DAG_VERSION,),
     DagAccessEntity.WARNING: (RESOURCE_DAG_WARNING,),
     DagAccessEntity.XCOM: (RESOURCE_XCOM,),
@@ -156,6 +162,7 @@ _MAP_ACCESS_VIEW_TO_FAB_RESOURCE_TYPE = {
 _MAP_MENU_ITEM_TO_FAB_RESOURCE_TYPE = {
     MenuItem.ASSETS: RESOURCE_ASSET,
     MenuItem.AUDIT_LOG: RESOURCE_AUDIT_LOG,
+    MenuItem.CONFIG: RESOURCE_CONFIG,
     MenuItem.CONNECTIONS: RESOURCE_CONNECTION,
     MenuItem.DAGS: RESOURCE_DAG,
     MenuItem.DOCS: RESOURCE_DOCS,
@@ -165,6 +172,13 @@ _MAP_MENU_ITEM_TO_FAB_RESOURCE_TYPE = {
     MenuItem.VARIABLES: RESOURCE_VARIABLE,
     MenuItem.XCOMS: RESOURCE_XCOM,
 }
+
+
+if AIRFLOW_V_3_1_PLUS:
+    from airflow.providers.fab.www.security.permissions import RESOURCE_HITL_DETAIL
+
+    _MAP_MENU_ITEM_TO_FAB_RESOURCE_TYPE[MenuItem.REQUIRED_ACTIONS] = RESOURCE_HITL_DETAIL
+    _MAP_DAG_ACCESS_ENTITY_TO_FAB_RESOURCE_TYPE[DagAccessEntity.HITL_DETAIL] = (RESOURCE_HITL_DETAIL,)
 
 
 class FabAuthManager(BaseAuthManager[User]):
@@ -198,6 +212,7 @@ class FabAuthManager(BaseAuthManager[User]):
                 subcommands=ROLES_COMMANDS,
             ),
             SYNC_PERM_COMMAND,  # not in a command group
+            PERMISSIONS_CLEANUP_COMMAND,  # single command for permissions cleanup
         ]
         # If Airflow version is 3.0.0 or higher, add the fab-db command group
         if packaging.version.parse(
@@ -312,40 +327,52 @@ class FabAuthManager(BaseAuthManager[User]):
 
         There are multiple scenarios:
 
-        1. ``dag_access`` is not provided which means the user wants to access the DAG itself and not a sub
-        entity (e.g. DAG runs).
-        2. ``dag_access`` is provided which means the user wants to access a sub entity of the DAG
-        (e.g. DAG runs).
+        1. ``method`` is "GET" and no details are provided which means the user wants to list Dags (or sub entities of Dags).
+        2. ``access_entity`` is not provided which means the user wants to access the DAG itself and not a sub
+            entity (e.g. Task instances).
+        3. ``access_entity`` is provided which means the user wants to access a sub entity of the DAG
+            (e.g. DAG runs).
 
             a. If ``method`` is GET, then check the user has READ permissions on the DAG and the sub entity.
-            b. Else, check the user has EDIT permissions on the DAG and ``method`` on the sub entity. However,
-                if no specific DAG is targeted, just check the sub entity.
+            b. Else, check the user has EDIT permissions on the DAG and ``method`` on the sub entity.
 
         :param method: The method to authorize.
         :param user: The user performing the action.
         :param access_entity: The dag access entity.
         :param details: The dag details.
         """
-        if not access_entity:
-            # Scenario 1
-            return self._is_authorized_dag(method=method, details=details, user=user)
-        # Scenario 2
-        resource_types = self._get_fab_resource_types(access_entity)
-        dag_method: ResourceMethod = "GET" if method == "GET" else "PUT"
+        if access_entity:
+            # If a sub-Dag entity is specified, check whether the user has access to it
+            resource_types = self._get_fab_resource_types(access_entity)
+            access_entity_authorized = all(
+                self._is_authorized(method=method, resource_type=resource_type, user=user)
+                for resource_type in resource_types
+            )
+            if access_entity == DagAccessEntity.RUN and details and details.id:
+                # Check using the deprecated permission prefix "DAG Run" to check whether the user has access to dag runs
+                is_authorized_run = self._is_authorized(
+                    method=method,
+                    resource_type=permissions.resource_name(details.id, RESOURCE_DAG_RUN),
+                    user=user,
+                )
+                if not (is_authorized_run or access_entity_authorized):
+                    return False
+            elif not access_entity_authorized:
+                return False
 
+        if method == "GET" and (not details or not details.id):
+            # Scenario 1
+            return self._is_authorized_list_dags(user=user)
+        if not access_entity:
+            # Scenario 2
+            return self._is_authorized_dag(method=method, details=details, user=user)
+        # Scenario 3
+        dag_method: ResourceMethod = "GET" if method == "GET" else "PUT"
         if (details and details.id) and not self._is_authorized_dag(
             method=dag_method, details=details, user=user
         ):
             return False
-
-        return all(
-            (
-                self._is_authorized(method=method, resource_type=resource_type, user=user)
-                if resource_type != RESOURCE_DAG_RUN or not hasattr(permissions, "resource_name")
-                else self._is_authorized_dag_run(method=method, details=details, user=user)
-            )
-            for resource_type in resource_types
-        )
+        return True
 
     def is_authorized_backfill(
         self,
@@ -386,7 +413,7 @@ class FabAuthManager(BaseAuthManager[User]):
 
     def is_authorized_view(self, *, access_view: AccessView, user: User) -> bool:
         # "Docs" are only links in the menu, there is no page associated
-        method: ResourceMethod = "MENU" if access_view == AccessView.DOCS else "GET"
+        method: ExtendedResourceMethod = "MENU" if access_view == AccessView.DOCS else "GET"
         return self._is_authorized(
             method=method,
             resource_type=_MAP_ACCESS_VIEW_TO_FAB_RESOURCE_TYPE[access_view],
@@ -448,8 +475,6 @@ class FabAuthManager(BaseAuthManager[User]):
                         return {dag.dag_id for dag in session.execute(select(DagModel.dag_id))}
                     if resource.startswith(permissions.RESOURCE_DAG_PREFIX):
                         resources.add(resource[len(permissions.RESOURCE_DAG_PREFIX) :])
-                    else:
-                        resources.add(resource)
         return set(session.scalars(select(DagModel.dag_id).where(DagModel.dag_id.in_(resources))))
 
     @cached_property
@@ -527,7 +552,7 @@ class FabAuthManager(BaseAuthManager[User]):
     def _is_authorized(
         self,
         *,
-        method: ResourceMethod,
+        method: ExtendedResourceMethod,
         resource_type: str,
         user: User,
     ) -> bool:
@@ -536,7 +561,7 @@ class FabAuthManager(BaseAuthManager[User]):
 
         :param method: the method to perform
         :param resource_type: the type of resource the user attempts to perform the action on
-        :param user: the user to performing the action
+        :param user: the user performing the action
 
         :meta private:
         """
@@ -556,7 +581,7 @@ class FabAuthManager(BaseAuthManager[User]):
 
         :param method: the method to perform
         :param details: details about the DAG
-        :param user: the user to performing the action
+        :param user: the user performing the action
 
         :meta private:
         """
@@ -566,39 +591,30 @@ class FabAuthManager(BaseAuthManager[User]):
 
         if details and details.id:
             # Check whether the user has permissions to access a specific DAG
-            resource_dag_name = self._resource_name(details.id, RESOURCE_DAG)
+            resource_dag_name = permissions.resource_name(details.id, RESOURCE_DAG)
             return self._is_authorized(method=method, resource_type=resource_dag_name, user=user)
-
         return False
 
-    def _is_authorized_dag_run(
-        self,
-        method: ResourceMethod,
-        details: DagDetails | None,
-        user: User,
-    ) -> bool:
+    def _is_authorized_list_dags(self, *, user: User) -> bool:
         """
-        Return whether the user is authorized to perform a given action on a DAG Run.
+        Return whether the user is authorized to list Dags.
 
-        :param method: the method to perform
-        :param details: details about the DAG
-        :param user: the user to performing the action
+        :param user: the user performing the action
 
         :meta private:
         """
-        is_global_authorized = self._is_authorized(method=method, resource_type=RESOURCE_DAG_RUN, user=user)
+        is_global_authorized = self._is_authorized(method="GET", resource_type=RESOURCE_DAG, user=user)
         if is_global_authorized:
             return True
 
-        if details and details.id:
-            # Check whether the user has permissions to access a specific DAG Run permission on a DAG Level
-            resource_dag_name = self._resource_name(details.id, RESOURCE_DAG_RUN)
-            return self._is_authorized(method=method, resource_type=resource_dag_name, user=user)
-
+        user_permissions = self._get_user_permissions(user)
+        for action, resource in user_permissions:
+            if action == ACTION_CAN_READ and resource.startswith(RESOURCE_DAG_PREFIX):
+                return True
         return False
 
     @staticmethod
-    def _get_fab_action(method: ResourceMethod) -> str:
+    def _get_fab_action(method: ExtendedResourceMethod) -> str:
         """
         Convert the method to a FAB action.
 
@@ -624,19 +640,6 @@ class FabAuthManager(BaseAuthManager[User]):
             raise AirflowException(f"Unknown DAG access entity: {dag_access_entity}")
         return _MAP_DAG_ACCESS_ENTITY_TO_FAB_RESOURCE_TYPE[dag_access_entity]
 
-    def _resource_name(self, dag_id: str, resource_type: str) -> str:
-        """
-        Return the FAB resource name for a DAG id.
-
-        :param dag_id: the DAG id
-
-        :meta private:
-        """
-        root_dag_id = self._get_root_dag_id(dag_id)
-        if hasattr(permissions, "resource_name"):
-            return getattr(permissions, "resource_name")(root_dag_id, resource_type)
-        return getattr(permissions, "resource_name_for_dag")(root_dag_id)
-
     @staticmethod
     def _get_user_permissions(user: User):
         """
@@ -650,23 +653,6 @@ class FabAuthManager(BaseAuthManager[User]):
         if not user:
             return []
         return getattr(user, "perms") or []
-
-    def _get_root_dag_id(self, dag_id: str) -> str:
-        """
-        Return the root DAG id in case of sub DAG, return the DAG id otherwise.
-
-        :param dag_id: the DAG id
-
-        :meta private:
-        """
-        if not self.appbuilder:
-            raise AirflowException("AppBuilder is not initialized.")
-
-        if "." in dag_id and hasattr(DagModel, "root_dag_id"):
-            return self.appbuilder.get_session.scalar(
-                select(DagModel.dag_id, DagModel.root_dag_id).where(DagModel.dag_id == dag_id).limit(1)
-            )
-        return dag_id
 
     def _sync_appbuilder_roles(self):
         """

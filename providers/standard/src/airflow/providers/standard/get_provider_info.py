@@ -35,6 +35,13 @@ def get_provider_info():
                     "/docs/apache-airflow-providers-standard/operators/bash.rst",
                     "/docs/apache-airflow-providers-standard/operators/python.rst",
                     "/docs/apache-airflow-providers-standard/operators/datetime.rst",
+                    "/docs/apache-airflow-providers-standard/operators/trigger_dag_run.rst",
+                    "/docs/apache-airflow-providers-standard/operators/latest_only.rst",
+                    "/docs/apache-airflow-providers-standard/sensors/bash.rst",
+                    "/docs/apache-airflow-providers-standard/sensors/python.rst",
+                    "/docs/apache-airflow-providers-standard/sensors/datetime.rst",
+                    "/docs/apache-airflow-providers-standard/sensors/file.rst",
+                    "/docs/apache-airflow-providers-standard/sensors/external_task_sensor.rst",
                 ],
             }
         ],
@@ -51,6 +58,7 @@ def get_provider_info():
                     "airflow.providers.standard.operators.latest_only",
                     "airflow.providers.standard.operators.smooth",
                     "airflow.providers.standard.operators.branch",
+                    "airflow.providers.standard.operators.hitl",
                 ],
             }
         ],
@@ -86,8 +94,13 @@ def get_provider_info():
                     "airflow.providers.standard.triggers.external_task",
                     "airflow.providers.standard.triggers.file",
                     "airflow.providers.standard.triggers.temporal",
+                    "airflow.providers.standard.triggers.hitl",
                 ],
             }
+        ],
+        "extra-links": [
+            "airflow.providers.standard.operators.trigger_dagrun.TriggerDagRunLink",
+            "airflow.providers.standard.sensors.external_task.ExternalDagLink",
         ],
         "config": {
             "standard": {

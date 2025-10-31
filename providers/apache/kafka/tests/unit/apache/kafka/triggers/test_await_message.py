@@ -24,9 +24,13 @@ import pytest
 from airflow.models import Connection
 from airflow.providers.apache.kafka.hooks.consume import KafkaConsumerHook
 from airflow.providers.apache.kafka.triggers.await_message import AwaitMessageTrigger
-from airflow.utils import db
 
-pytestmark = pytest.mark.db_test
+from tests_common.test_utils.common_msg_queue import (
+    collect_queue_param_deprecation_warning,
+    mark_common_msg_queue_test,
+)
+
+USED_FIXTURES = [collect_queue_param_deprecation_warning]
 
 
 def apply_function_false(message):
@@ -57,8 +61,9 @@ class MockedConsumer:
 
 
 class TestTrigger:
-    def setup_method(self):
-        db.merge_conn(
+    @pytest.fixture(autouse=True)
+    def setup_connections(self, create_connection_without_db):
+        create_connection_without_db(
             Connection(
                 conn_id="kafka_d",
                 conn_type="kafka",
@@ -127,3 +132,23 @@ class TestTrigger:
         await asyncio.sleep(1.0)
         assert task.done() is False
         asyncio.get_event_loop().stop()
+
+
+@mark_common_msg_queue_test
+class TestMessageQueueTrigger:
+    @pytest.mark.usefixtures("collect_queue_param_deprecation_warning")
+    def test_provider_integrations_with_queue_param(self, cleanup_providers_manager):
+        queue = "kafka://localhost:9092/topic1"
+
+        from airflow.providers.common.messaging.triggers.msg_queue import MessageQueueTrigger
+
+        trigger = MessageQueueTrigger(queue=queue, apply_function="mock_kafka_trigger_apply_function")
+        assert isinstance(trigger.trigger, AwaitMessageTrigger)
+
+    def test_provider_integrations_with_scheme_param(self, cleanup_providers_manager):
+        from airflow.providers.common.messaging.triggers.msg_queue import MessageQueueTrigger
+
+        trigger = MessageQueueTrigger(
+            scheme="kafka", apply_function="mock_kafka_trigger_apply_function", topics=["topic1"]
+        )
+        assert isinstance(trigger.trigger, AwaitMessageTrigger)

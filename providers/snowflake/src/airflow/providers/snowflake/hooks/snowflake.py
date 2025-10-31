@@ -17,24 +17,28 @@
 # under the License.
 from __future__ import annotations
 
+import base64
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import closing, contextmanager
 from functools import cached_property
 from io import StringIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, TypeVar, overload
+from typing import TYPE_CHECKING, Any, TypeVar, overload
 from urllib.parse import urlparse
 
+import requests
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
+from requests.auth import HTTPBasicAuth
 from snowflake import connector
 from snowflake.connector import DictCursor, SnowflakeConnection, util_text
 from snowflake.sqlalchemy import URL
 from sqlalchemy import create_engine
 
 from airflow.exceptions import AirflowException
-from airflow.providers.common.sql.hooks.sql import DbApiHook, return_single_query_results
+from airflow.providers.common.sql.hooks.handlers import return_single_query_results
+from airflow.providers.common.sql.hooks.sql import DbApiHook
 from airflow.providers.snowflake.utils.openlineage import fix_snowflake_sqlalchemy_uri
 from airflow.utils.strings import to_boolean
 
@@ -132,6 +136,9 @@ class SnowflakeHook(DbApiHook):
                         "session_parameters": "session parameters",
                         "client_request_mfa_token": "client request mfa token",
                         "client_store_temporary_credential": "client store temporary credential (externalbrowser mode)",
+                        "grant_type": "refresh_token client_credentials",
+                        "token_endpoint": "token endpoint",
+                        "refresh_token": "refresh token",
                     },
                     indent=1,
                 ),
@@ -185,6 +192,60 @@ class SnowflakeHook(DbApiHook):
             return extra_dict[field_name] or None
         return extra_dict.get(backcompat_key) or None
 
+    @property
+    def account_identifier(self) -> str:
+        """Get snowflake account identifier."""
+        conn_config = self._get_conn_params
+        account_identifier = f"https://{conn_config['account']}"
+
+        if conn_config["region"]:
+            account_identifier += f".{conn_config['region']}"
+
+        return account_identifier
+
+    def get_oauth_token(
+        self,
+        conn_config: dict | None = None,
+        token_endpoint: str | None = None,
+        grant_type: str = "refresh_token",
+    ) -> str:
+        """Generate temporary OAuth access token using refresh token in connection details."""
+        if conn_config is None:
+            conn_config = self._get_conn_params
+
+        url = token_endpoint or f"https://{conn_config['account']}.snowflakecomputing.com/oauth/token-request"
+
+        data = {
+            "grant_type": grant_type,
+            "redirect_uri": conn_config.get("redirect_uri", "https://localhost.com"),
+        }
+
+        if grant_type == "refresh_token":
+            data |= {
+                "refresh_token": conn_config["refresh_token"],
+            }
+        elif grant_type == "client_credentials":
+            pass  # no setup necessary for client credentials grant.
+        else:
+            raise ValueError(f"Unknown grant_type: {grant_type}")
+
+        response = requests.post(
+            url,
+            data=data,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            auth=HTTPBasicAuth(conn_config["client_id"], conn_config["client_secret"]),  # type: ignore[arg-type]
+        )
+
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:  # pragma: no cover
+            msg = f"Response: {e.response.content.decode()} Status Code: {e.response.status_code}"
+            raise AirflowException(msg)
+        token = response.json()["access_token"]
+        return token
+
     @cached_property
     def _get_conn_params(self) -> dict[str, str | None]:
         """
@@ -192,7 +253,7 @@ class SnowflakeHook(DbApiHook):
 
         This is used in ``get_uri()`` and ``get_connection()``.
         """
-        conn = self.get_connection(self.snowflake_conn_id)  # type: ignore[attr-defined]
+        conn = self.get_connection(self.get_conn_id())
         extra_dict = conn.extra_dejson
         account = self._get_field(extra_dict, "account") or ""
         warehouse = self._get_field(extra_dict, "warehouse") or ""
@@ -262,7 +323,7 @@ class SnowflakeHook(DbApiHook):
                 raise ValueError("The private_key_file size is too big. Please keep it less than 4 KB.")
             private_key_pem = Path(private_key_file_path).read_bytes()
         elif private_key_content:
-            private_key_pem = private_key_content.encode()
+            private_key_pem = base64.b64decode(private_key_content)
 
         if private_key_pem:
             passphrase = None
@@ -286,9 +347,19 @@ class SnowflakeHook(DbApiHook):
         if refresh_token:
             conn_config["refresh_token"] = refresh_token
             conn_config["authenticator"] = "oauth"
+
+        if conn_config.get("authenticator") == "oauth":
+            token_endpoint = self._get_field(extra_dict, "token_endpoint") or ""
             conn_config["client_id"] = conn.login
             conn_config["client_secret"] = conn.password
+            conn_config["token"] = self.get_oauth_token(
+                conn_config=conn_config,
+                token_endpoint=token_endpoint,
+                grant_type=extra_dict.get("grant_type", "refresh_token"),
+            )
+
             conn_config.pop("login", None)
+            conn_config.pop("user", None)
             conn_config.pop("password", None)
 
         # configure custom target hostname and port, if specified
@@ -390,7 +461,7 @@ class SnowflakeHook(DbApiHook):
     def get_autocommit(self, conn):
         return getattr(conn, "autocommit_mode", False)
 
-    @overload  # type: ignore[override]
+    @overload
     def run(
         self,
         sql: str | Iterable[str],
@@ -472,16 +543,17 @@ class SnowflakeHook(DbApiHook):
             with self._get_cursor(conn, return_dictionaries) as cur:
                 results = []
                 for sql_statement in sql_list:
-                    self._run_command(cur, sql_statement, parameters)  # type: ignore[attr-defined]
+                    self.log.info("Running statement: %s, parameters: %s", sql_statement, parameters)
+                    self._run_command(cur, sql_statement, parameters)
 
                     if handler is not None:
-                        result = self._make_common_data_structure(handler(cur))  # type: ignore[attr-defined]
+                        result = self._make_common_data_structure(handler(cur))
                         if return_single_query_results(sql, return_last, split_statements):
                             _last_result = result
                             _last_description = cur.description
                         else:
                             results.append(result)
-                            self.descriptions.append(cur.description)  # type: ignore[has-type]
+                            self.descriptions.append(cur.description)
 
                     query_id = cur.sfqid
                     self.log.info("Rows affected: %s", cur.rowcount)
@@ -545,10 +617,9 @@ class SnowflakeHook(DbApiHook):
 
     def get_openlineage_database_specific_lineage(self, task_instance) -> OperatorLineage | None:
         """
-        Generate OpenLineage metadata for a Snowflake task instance based on executed query IDs.
+        Emit separate OpenLineage events for each Snowflake query, based on executed query IDs.
 
-        If a single query ID is present, attach an `ExternalQueryRunFacet` to the lineage metadata.
-        If multiple query IDs are present, emits separate OpenLineage events for each query.
+        If a single query ID is present, also add an `ExternalQueryRunFacet` to the returned lineage metadata.
 
         Note that `get_openlineage_database_specific_lineage` is usually called after task's execution,
         so if multiple query IDs are present, both START and COMPLETE event for each query will be emitted
@@ -569,12 +640,21 @@ class SnowflakeHook(DbApiHook):
         )
 
         if not self.query_ids:
-            self.log.debug("openlineage: no snowflake query ids found.")
+            self.log.info("OpenLineage could not find snowflake query ids.")
             return None
 
         self.log.debug("openlineage: getting connection to get database info")
         connection = self.get_connection(self.get_conn_id())
         namespace = SQLParser.create_namespace(self.get_openlineage_database_info(connection))
+
+        self.log.info("Separate OpenLineage events will be emitted for each query_id.")
+        emit_openlineage_events_for_snowflake_queries(
+            task_instance=task_instance,
+            hook=self,
+            query_ids=self.query_ids,
+            query_for_extra_metadata=True,
+            query_source_namespace=namespace,
+        )
 
         if len(self.query_ids) == 1:
             self.log.debug("Attaching ExternalQueryRunFacet with single query_id to OpenLineage event.")
@@ -585,21 +665,5 @@ class SnowflakeHook(DbApiHook):
                     )
                 }
             )
-
-        self.log.info("Multiple query_ids found. Separate OpenLineage event will be emitted for each query.")
-        try:
-            from airflow.providers.openlineage.utils.utils import should_use_external_connection
-
-            use_external_connection = should_use_external_connection(self)
-        except ImportError:
-            # OpenLineage provider release < 1.8.0 - we always use connection
-            use_external_connection = True
-
-        emit_openlineage_events_for_snowflake_queries(
-            query_ids=self.query_ids,
-            query_source_namespace=namespace,
-            task_instance=task_instance,
-            hook=self if use_external_connection else None,
-        )
 
         return None

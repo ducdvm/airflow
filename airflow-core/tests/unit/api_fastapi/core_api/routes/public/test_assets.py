@@ -23,6 +23,7 @@ from unittest import mock
 import pytest
 import time_machine
 
+from airflow._shared.timezones import timezone
 from airflow.models import DagModel
 from airflow.models.asset import (
     AssetActive,
@@ -35,13 +36,18 @@ from airflow.models.asset import (
 )
 from airflow.models.dagrun import DagRun
 from airflow.providers.standard.operators.empty import EmptyOperator
-from airflow.utils import timezone
 from airflow.utils.session import provide_session
 from airflow.utils.state import DagRunState
 from airflow.utils.types import DagRunType
 
 from tests_common.test_utils.asserts import assert_queries_count
-from tests_common.test_utils.db import clear_db_assets, clear_db_logs, clear_db_runs
+from tests_common.test_utils.db import (
+    clear_db_assets,
+    clear_db_dag_bundles,
+    clear_db_dags,
+    clear_db_logs,
+    clear_db_runs,
+)
 from tests_common.test_utils.format_datetime import from_datetime_to_zulu_without_ms
 from tests_common.test_utils.logs import check_last_log
 
@@ -192,12 +198,16 @@ class TestAssets:
     def setup(self):
         clear_db_assets()
         clear_db_runs()
+        clear_db_dags()
+        clear_db_dag_bundles()
         clear_db_logs()
 
         yield
 
         clear_db_assets()
         clear_db_runs()
+        clear_db_dags()
+        clear_db_dag_bundles()
         clear_db_logs()
 
     @provide_session
@@ -256,9 +266,12 @@ class TestGetAssets(TestAssets):
                     "extra": {"foo": "bar"},
                     "created_at": tz_datetime_format,
                     "updated_at": tz_datetime_format,
-                    "consuming_dags": [],
+                    "scheduled_dags": [],
                     "producing_tasks": [],
+                    "consuming_tasks": [],
                     "aliases": [],
+                    # No AssetEvent, so no data!
+                    "last_asset_event": {"id": None, "timestamp": None},
                 },
                 {
                     "id": asset2.id,
@@ -268,9 +281,11 @@ class TestGetAssets(TestAssets):
                     "extra": {"foo": "bar"},
                     "created_at": tz_datetime_format,
                     "updated_at": tz_datetime_format,
-                    "consuming_dags": [],
+                    "scheduled_dags": [],
                     "producing_tasks": [],
+                    "consuming_tasks": [],
                     "aliases": [],
+                    "last_asset_event": {"id": None, "timestamp": None},
                 },
             ],
             "total_entries": 2,
@@ -307,9 +322,11 @@ class TestGetAssets(TestAssets):
                     "extra": {"foo": "bar"},
                     "created_at": tz_datetime_format,
                     "updated_at": tz_datetime_format,
-                    "consuming_dags": [],
+                    "scheduled_dags": [],
                     "producing_tasks": [],
+                    "consuming_tasks": [],
                     "aliases": [],
+                    "last_asset_event": {"id": None, "timestamp": None},
                 },
                 {
                     "id": asset2.id,
@@ -319,9 +336,11 @@ class TestGetAssets(TestAssets):
                     "extra": {"foo": "bar"},
                     "created_at": tz_datetime_format,
                     "updated_at": tz_datetime_format,
-                    "consuming_dags": [],
+                    "scheduled_dags": [],
                     "producing_tasks": [],
+                    "consuming_tasks": [],
                     "aliases": [],
+                    "last_asset_event": {"id": None, "timestamp": None},
                 },
                 {
                     "id": asset3.id,
@@ -331,9 +350,11 @@ class TestGetAssets(TestAssets):
                     "extra": {"foo": "bar"},
                     "created_at": tz_datetime_format,
                     "updated_at": tz_datetime_format,
-                    "consuming_dags": [],
+                    "scheduled_dags": [],
                     "producing_tasks": [],
+                    "consuming_tasks": [],
                     "aliases": [],
+                    "last_asset_event": {"id": None, "timestamp": None},
                 },
             ],
             "total_entries": 3,
@@ -428,9 +449,13 @@ class TestGetAssets(TestAssets):
 
     @pytest.mark.parametrize("dag_ids, expected_num", [("dag1,dag2", 2), ("dag3", 1), ("dag2,dag3", 2)])
     @provide_session
-    def test_filter_assets_by_dag_ids_works(self, test_client, dag_ids, expected_num, session):
+    def test_filter_assets_by_dag_ids_works(
+        self, test_client, dag_ids, expected_num, testing_dag_bundle, session
+    ):
         session.query(DagModel).delete()
         session.commit()
+        bundle_name = "testing"
+
         asset1 = AssetModel("s3://folder/key")
         asset2 = AssetModel("gcp://bucket/key")
         asset3 = AssetModel("somescheme://asset/key")
@@ -442,9 +467,9 @@ class TestGetAssets(TestAssets):
                 AssetActive.for_asset(asset1),
                 AssetActive.for_asset(asset2),
                 AssetActive.for_asset(asset3),
-                DagModel(dag_id="dag1"),
-                DagModel(dag_id="dag2"),
-                DagModel(dag_id="dag3"),
+                DagModel(dag_id="dag1", bundle_name=bundle_name),
+                DagModel(dag_id="dag2", bundle_name=bundle_name),
+                DagModel(dag_id="dag3", bundle_name=bundle_name),
                 DagScheduleAssetReference(dag_id="dag1", asset=asset1),
                 DagScheduleAssetReference(dag_id="dag2", asset=asset2),
                 TaskOutletAssetReference(dag_id="dag3", task_id="task1", asset=asset3),
@@ -464,10 +489,12 @@ class TestGetAssets(TestAssets):
     )
     @provide_session
     def test_filter_assets_by_dag_ids_and_uri_pattern_works(
-        self, test_client, dag_ids, uri_pattern, expected_num, session
+        self, test_client, dag_ids, uri_pattern, expected_num, testing_dag_bundle, session
     ):
         session.query(DagModel).delete()
         session.commit()
+        bundle_name = "testing"
+
         asset1 = AssetModel("s3://folder/key")
         asset2 = AssetModel("gcp://bucket/key")
         asset3 = AssetModel("somescheme://asset/key")
@@ -479,9 +506,9 @@ class TestGetAssets(TestAssets):
                 AssetActive.for_asset(asset1),
                 AssetActive.for_asset(asset2),
                 AssetActive.for_asset(asset3),
-                DagModel(dag_id="dag1"),
-                DagModel(dag_id="dag2"),
-                DagModel(dag_id="dag3"),
+                DagModel(dag_id="dag1", bundle_name=bundle_name),
+                DagModel(dag_id="dag2", bundle_name=bundle_name),
+                DagModel(dag_id="dag3", bundle_name=bundle_name),
                 DagScheduleAssetReference(dag_id="dag1", asset=asset1),
                 DagScheduleAssetReference(dag_id="dag2", asset=asset2),
                 TaskOutletAssetReference(dag_id="dag3", task_id="task1", asset=asset3),
@@ -534,10 +561,14 @@ class TestAssetAliases:
     def setup(self) -> None:
         clear_db_assets()
         clear_db_runs()
+        clear_db_dags()
+        clear_db_dag_bundles()
 
     def teardown_method(self) -> None:
         clear_db_assets()
         clear_db_runs()
+        clear_db_dags()
+        clear_db_dag_bundles()
 
     @provide_session
     def create_asset_aliases(self, num: int = 2, *, session):
@@ -894,9 +925,11 @@ class TestGetAssetEndpoint(TestAssets):
             "extra": {"foo": "bar"},
             "created_at": tz_datetime_format,
             "updated_at": tz_datetime_format,
-            "consuming_dags": [],
+            "scheduled_dags": [],
             "producing_tasks": [],
+            "consuming_tasks": [],
             "aliases": [],
+            "last_asset_event": {"id": None, "timestamp": None},
         }
 
     def test_should_respond_401(self, unauthenticated_test_client):
@@ -927,9 +960,11 @@ class TestGetAssetEndpoint(TestAssets):
             "extra": {"password": "***"},
             "created_at": tz_datetime_format,
             "updated_at": tz_datetime_format,
-            "consuming_dags": [],
+            "scheduled_dags": [],
             "producing_tasks": [],
+            "consuming_tasks": [],
             "aliases": [],
+            "last_asset_event": {"id": None, "timestamp": None},
         }
 
 
@@ -977,6 +1012,7 @@ class TestGetDagAssetQueuedEvents(TestQueuedEventEndpoint):
                 {
                     "asset_id": asset.id,
                     "dag_id": "dag",
+                    "dag_display_name": "dag",
                     "created_at": from_datetime_to_zulu_without_ms(DEFAULT_DATE),
                 }
             ],
@@ -1115,6 +1151,39 @@ class TestPostAssetEvents(TestAssets):
             "timestamp": from_datetime_to_zulu_without_ms(DEFAULT_DATE),
         }
 
+    def test_should_update_asset_endpoint(self, test_client, session):
+        """Test for a single Asset."""
+        (asset,) = self.create_assets(session, num=1)
+        event_payload = {"asset_id": asset.id, "extra": {"foo": "bar"}}
+        asset_event_response = test_client.post("/assets/events", json=event_payload)
+        asset_response = test_client.get(f"/assets/{asset.id}")
+
+        assert asset_response.json()["last_asset_event"]["id"] == asset_event_response.json()["id"]
+        assert (
+            asset_response.json()["last_asset_event"]["timestamp"] == asset_event_response.json()["timestamp"]
+        )
+
+    def test_should_update_assets_endpoint(self, test_client, session):
+        """Test for multiple Assets."""
+        asset1, asset2 = self.create_assets(session, num=2)
+
+        # Now, only make a POST to the /assets/events endpoint for one of the Assets
+        for _ in range(2):
+            event_payload = {"asset_id": asset1.id, "extra": {"foo": "bar"}}
+            asset_event_response = test_client.post("/assets/events", json=event_payload)
+
+        assets_response = test_client.get("/assets")
+
+        for asset in assets_response.json()["assets"]:
+            # We should expect to see AssetEvents for the first Asset
+            if asset["id"] == asset1.id:
+                assert asset["last_asset_event"]["id"] == asset_event_response.json()["id"]
+                assert asset["last_asset_event"]["timestamp"] == asset_event_response.json()["timestamp"]
+
+            elif asset["id"] == asset2.id:
+                assert asset["last_asset_event"]["id"] is None
+                assert asset["last_asset_event"]["timestamp"] is None
+
 
 @pytest.mark.need_serialized_dag
 class TestPostAssetMaterialize(TestAssets):
@@ -1145,6 +1214,7 @@ class TestPostAssetMaterialize(TestAssets):
         assert response.status_code == 200
         assert response.json() == {
             "bundle_version": None,
+            "dag_display_name": self.DAG_ASSET1_ID,
             "dag_run_id": mock.ANY,
             "dag_id": self.DAG_ASSET1_ID,
             "dag_versions": mock.ANY,
@@ -1153,12 +1223,14 @@ class TestPostAssetMaterialize(TestAssets):
             "run_after": mock.ANY,
             "start_date": None,
             "end_date": None,
+            "duration": None,
             "data_interval_start": None,
             "data_interval_end": None,
             "last_scheduling_decision": None,
             "run_type": "manual",
             "state": "queued",
             "triggered_by": "rest_api",
+            "triggering_user_name": "test",
             "conf": {},
             "note": None,
         }
@@ -1197,6 +1269,7 @@ class TestGetAssetQueuedEvents(TestQueuedEventEndpoint):
                 {
                     "asset_id": asset.id,
                     "dag_id": "dag",
+                    "dag_display_name": "dag",
                     "created_at": from_datetime_to_zulu_without_ms(DEFAULT_DATE),
                 }
             ],

@@ -30,13 +30,16 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.ext.declarative import DeclarativeMeta
 
+from airflow import DAG
+from airflow._shared.timezones import timezone
 from airflow.exceptions import AirflowException
 from airflow.models import DagModel, DagRun, TaskInstance
+from airflow.models.dag_version import DagVersion
+from airflow.models.dagbundle import DagBundleModel
+from airflow.models.serialized_dag import LazyDeserializedDAG, SerializedDagModel
 from airflow.providers.standard.operators.python import PythonOperator
-from airflow.utils import timezone
 from airflow.utils.db_cleanup import (
     ARCHIVE_TABLE_PREFIX,
-    ARCHIVED_TABLES_FROM_DB_MIGRATIONS,
     CreateTableAs,
     _build_query,
     _cleanup_table,
@@ -53,6 +56,7 @@ from airflow.utils.types import DagRunType
 
 from tests_common.test_utils.db import (
     clear_db_assets,
+    clear_db_dag_bundles,
     clear_db_dags,
     clear_db_runs,
     drop_tables_with_prefix,
@@ -67,10 +71,12 @@ def clean_database():
     clear_db_runs()
     clear_db_assets()
     clear_db_dags()
+    clear_db_dag_bundles()
     yield  # Test runs here
     clear_db_dags()
     clear_db_assets()
     clear_db_runs()
+    clear_db_dag_bundles()
 
 
 class TestDBCleanup:
@@ -122,6 +128,20 @@ class TestDBCleanup:
             **kwargs,
         )
         assert cleanup_table_mock.call_args.kwargs["skip_archive"] is should_skip
+
+    @patch("airflow.utils.db_cleanup._cleanup_table")
+    def test_run_cleanup_batch_size_propagation(self, cleanup_table_mock):
+        """Ensure batch_size is forwarded from run_cleanup to _cleanup_table."""
+        run_cleanup(
+            clean_before_timestamp=None,
+            table_names=["log"],
+            dry_run=None,
+            verbose=None,
+            confirm=False,
+            batch_size=1234,
+        )
+        cleanup_table_mock.assert_called_once()
+        assert cleanup_table_mock.call_args.kwargs["batch_size"] == 1234
 
     @pytest.mark.parametrize(
         "table_names",
@@ -336,7 +356,7 @@ class TestDBCleanup:
 
     @pytest.mark.parametrize(
         "skip_archive, expected_archives",
-        [pytest.param(True, 1, id="skip_archive"), pytest.param(False, 2, id="do_archive")],
+        [pytest.param(True, 0, id="skip_archive"), pytest.param(False, 1, id="do_archive")],
     )
     def test__skip_archive(self, skip_archive, expected_archives):
         """
@@ -351,6 +371,9 @@ class TestDBCleanup:
             num_tis=num_tis,
         )
         with create_session() as session:
+            # cleanup any existing archived tables
+            for name in _get_archived_table_names(["dag_run"], session):
+                session.execute(text(f"DROP TABLE IF EXISTS {name}"))
             clean_before_date = base_date.add(days=5)
             _cleanup_table(
                 **config_dict["dag_run"].__dict__,
@@ -380,6 +403,9 @@ class TestDBCleanup:
         )
         try:
             with create_session() as session:
+                # cleanup any existing archived tables
+                for name in _get_archived_table_names(["dag_run"], session):
+                    session.execute(text(f"DROP TABLE IF EXISTS {name}"))
                 clean_before_date = base_date.add(days=5)
                 _cleanup_table(
                     **config_dict["dag_run"].__dict__,
@@ -392,8 +418,7 @@ class TestDBCleanup:
         except SQLAlchemyError:
             pass
         archived_table_names = _get_archived_table_names(["dag_run"], session)
-        assert len(archived_table_names) == 1
-        assert archived_table_names[0] in ARCHIVED_TABLES_FROM_DB_MIGRATIONS
+        assert len(archived_table_names) == 0
 
     def test_no_models_missing(self):
         """
@@ -583,15 +608,25 @@ class TestDBCleanup:
     @patch("airflow.utils.db_cleanup.csv")
     def test_dump_table_to_file_function_for_csv(self, mock_csv):
         mockopen = mock_open()
+        mock_cursor = MagicMock()
+        mock_session = MagicMock()
+        mock_session.execute.return_value = mock_cursor
+        mock_cursor.keys.return_value = ["test-col-1", "test-col-2"]
+        mock_cursor.fetchmany.side_effect = [
+            [("testval-1.1", "testval-1.2"), ("testval-2.1", "testval-2.2")],
+            [],
+        ]
         with patch("airflow.utils.db_cleanup.open", mockopen, create=True):
             _dump_table_to_file(
-                target_table="mytable", file_path="dags/myfile.csv", export_format="csv", session=MagicMock()
+                target_table="mytable", file_path="dags/myfile.csv", export_format="csv", session=mock_session
             )
             mockopen.assert_called_once_with("dags/myfile.csv", "w")
             writer = mock_csv.writer
             writer.assert_called_once()
-            writer.return_value.writerow.assert_called_once()
-            writer.return_value.writerows.assert_called_once()
+            writer.return_value.writerow.assert_called_once_with(["test-col-1", "test-col-2"])
+            writer.return_value.writerows.assert_called_once_with(
+                [("testval-1.1", "testval-1.2"), ("testval-2.1", "testval-2.2")]
+            )
 
     def test_dump_table_to_file_raises_if_format_not_supported(self):
         with pytest.raises(AirflowException) as exc_info:
@@ -641,8 +676,16 @@ class TestDBCleanup:
 
 def create_tis(base_date, num_tis, run_type=DagRunType.SCHEDULED):
     with create_session() as session:
-        dag = DagModel(dag_id=f"test-dag_{uuid4()}")
-        session.add(dag)
+        bundle_name = "testing"
+        session.add(DagBundleModel(name=bundle_name))
+        session.flush()
+
+        dag_id = f"test-dag_{uuid4()}"
+        dag = DAG(dag_id=dag_id)
+        dm = DagModel(dag_id=dag_id, bundle_name=bundle_name)
+        session.add(dm)
+        SerializedDagModel.write_dag(LazyDeserializedDAG.from_dag(dag), bundle_name=bundle_name)
+        dag_version = DagVersion.get_latest_version(dag.dag_id)
         for num in range(num_tis):
             start_date = base_date.add(days=num)
             dag_run = DagRun(
@@ -652,7 +695,9 @@ def create_tis(base_date, num_tis, run_type=DagRunType.SCHEDULED):
                 start_date=start_date,
             )
             ti = TaskInstance(
-                PythonOperator(task_id="dummy-task", python_callable=print), run_id=dag_run.run_id
+                PythonOperator(task_id="dummy-task", python_callable=print),
+                run_id=dag_run.run_id,
+                dag_version_id=dag_version.id,
             )
             ti.dag_id = dag.dag_id
             ti.start_date = start_date

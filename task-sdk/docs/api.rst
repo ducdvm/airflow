@@ -23,7 +23,7 @@ This page documents the full public API exposed in Airflow 3.0+ via the Task SDK
 If something is not on this page it is best to assume that it is not part of the public API and use of it is entirely at your own risk
 -- we won't go out of our way break usage of them, but we make no promises either.
 
-Defining DAGs
+Defining Dags
 -------------
 .. autoapiclass:: airflow.sdk.DAG
 
@@ -32,6 +32,15 @@ Decorators
 ----------
 .. autoapifunction:: airflow.sdk.dag
 .. autoapifunction:: airflow.sdk.task
+
+Task Decorators:
+
+- ``@task.run_if(condition, skip_message=None)``
+  Run the task only if the given condition is met; otherwise the task is skipped.  The condition is a callable
+  that receives the task execution context and returns either a boolean or a tuple ``(bool, message)``.
+- ``@task.skip_if(condition, skip_message=None)``
+  Skip the task if the given condition is met, raising a skip exception with an optional message.
+- Provider-specific task decorators under ``@task.<provider>``, e.g. ``@task.python``, ``@task.docker``, etc., dynamically loaded from registered providers.
 
 .. autoapifunction:: airflow.sdk.task_group
 
@@ -61,6 +70,8 @@ Bases
 
 .. autoapiclass:: airflow.sdk.PokeReturnValue
 
+.. autoapiclass:: airflow.sdk.BaseHook
+
 Connections & Variables
 -----------------------
 .. autoapiclass:: airflow.sdk.Connection
@@ -76,6 +87,16 @@ Tasks & Operators
 .. autoapifunction:: airflow.sdk.get_parsing_context
 
 .. autoapiclass:: airflow.sdk.Param
+
+.. autoclass:: airflow.sdk.TriggerRule
+
+State Enums
+-----------
+.. autoclass:: airflow.sdk.TaskInstanceState
+
+.. autoclass:: airflow.sdk.DagRunState
+
+.. autoclass:: airflow.sdk.WeightRule
 
 Setting Dependencies
 ~~~~~~~~~~~~~~~~~~~~
@@ -114,11 +135,12 @@ I/O Helpers
 Execution Time Components
 -------------------------
 .. rubric:: Context
-.. autoapiclass:: airflow.sdk.Context
-.. autoapimodule:: airflow.sdk.execution_time.context
-   :members:
-   :undoc-members:
 
+.. autoapiclass:: airflow.sdk.Context
+
+.. rubric:: Logging
+
+.. autofunction:: airflow.sdk.log.mask_secret
 
 Everything else
 ---------------

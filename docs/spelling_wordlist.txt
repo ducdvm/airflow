@@ -34,6 +34,7 @@ airbnb
 Airbyte
 airbyte
 AirflowConfigParser
+airflowctl
 AirflowException
 airflowignore
 ajax
@@ -65,6 +66,7 @@ AnExampleDisplayName
 AnnotateTextResponse
 AnotherExampleDisplayName
 ans
+anser
 Ansible
 anyOf
 apache
@@ -215,6 +217,7 @@ botocore
 BounceX
 Bq
 bq
+bteq
 bugfix
 bugfixes
 buildType
@@ -223,6 +226,7 @@ bytestring
 cacert
 Cadwyn
 callables
+callsite
 camelCase
 Cancelled
 cancelled
@@ -528,6 +532,9 @@ Dlp
 dlp
 DlpJob
 DlpServiceClient
+DLQ
+Dlq
+dlq
 dms
 DNs
 dns
@@ -771,6 +778,7 @@ golang
 googleads
 GoogleAdsRow
 googleapiclient
+googleapis
 GoogleDisplayVideo
 gpu
 gpus
@@ -786,6 +794,7 @@ grpc
 GSoD
 gsuite
 Gunicorn
+gunicorn
 gz
 Gzip
 gzipped
@@ -831,6 +840,7 @@ hotfix
 Hou
 howto
 hql
+href
 html
 htmlcontent
 Http
@@ -987,6 +997,7 @@ kerberized
 Kerberos
 kerberos
 KerberosClient
+keycloak
 Keyfile
 keyfile
 KeyManagementServiceClient
@@ -1094,6 +1105,8 @@ masterType
 materializations
 Matomo
 matomo
+MaxCompute
+maxcompute
 Maxime
 MaxRuntimeInSeconds
 mb
@@ -1152,6 +1165,8 @@ mssql
 mTLS
 mtls
 muldelete
+multi-cloud
+multimodal
 Multinamespace
 mutex
 mv
@@ -1224,6 +1239,7 @@ objectstorage
 observability
 od
 odbc
+odps
 ok
 Okta
 okta
@@ -1355,6 +1371,7 @@ prefetched
 prefetches
 preflight
 prefork
+prek
 Preload
 preloading
 prepend
@@ -1494,6 +1511,7 @@ repos
 repr
 req
 reqs
+requeue
 requeued
 Reserialize
 reserialize
@@ -1559,6 +1577,7 @@ sched
 schedulable
 schedulername
 schemas
+scrollbar
 sdk
 sdks
 searchpath
@@ -1699,6 +1718,7 @@ StrictUndefined
 Stringified
 stringified
 Struct
+StructuredLogMessage
 STS
 subchart
 subclassed
@@ -1776,11 +1796,13 @@ taskgroup
 TaskGroups
 taskGroups
 TaskInstance
+taskInstance
 taskinstance
 TaskInstanceKey
 taskinstancekey
 taskmeta
 taskmixin
+tasksDuration
 tasksetmeta
 tasksState
 taskTree
@@ -1823,6 +1845,9 @@ timedeltas
 timeframe
 timespan
 timezones
+TinkerPop
+Tinkerpop
+tinkerpop
 tis
 TLS
 tls
@@ -1945,6 +1970,8 @@ utilise
 Utils
 utils
 uuid
+uv
+uvicorn
 V1JobList
 validator
 validators
@@ -1968,6 +1995,7 @@ views
 virtualenv
 virtualenvs
 virtualized
+Vite
 vm
 VolumeKmsKeyId
 VolumeMount

@@ -18,17 +18,21 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import pytest
-
-from airflow.decorators import task
-from airflow.models.baseoperator import chain
-from airflow.models.dag import DAG
 from airflow.providers.amazon.aws.operators.sagemaker_unified_studio import (
     SageMakerNotebookOperator,
 )
 
+from tests_common.test_utils.version_compat import AIRFLOW_V_3_0_PLUS
+
+if AIRFLOW_V_3_0_PLUS:
+    from airflow.sdk import DAG, chain, task
+else:
+    # Airflow 2 path
+    from airflow.decorators import task  # type: ignore[attr-defined,no-redef]
+    from airflow.models.baseoperator import chain  # type: ignore[attr-defined,no-redef]
+    from airflow.models.dag import DAG  # type: ignore[attr-defined,no-redef,assignment]
+
 from system.amazon.aws.utils import ENV_ID_KEY, SystemTestContextBuilder
-from tests_common.test_utils.version_compat import AIRFLOW_V_2_10_PLUS
 
 """
 Prerequisites: The account which runs this test must manually have the following:
@@ -41,8 +45,6 @@ This test will emulate a DAG run in the shared MWAA environment inside a SageMak
 The setup tasks will set up the project and configure the test runner to emulate an MWAA instance.
 Then, the SageMakerNotebookOperator will run a test notebook. This should spin up a SageMaker training job, run the notebook, and exit successfully.
 """
-
-pytestmark = pytest.mark.skipif(not AIRFLOW_V_2_10_PLUS, reason="Test requires Airflow 2.10+")
 
 DAG_ID = "example_sagemaker_unified_studio"
 
@@ -140,7 +142,17 @@ with DAG(
         waiter_delay=5,  # optional
         deferrable=False,  # optional
         executor_config={  # optional
-            "overrides": {"containerOverrides": {"environment": mock_mwaa_environment_params}}
+            "overrides": {
+                "containerOverrides": [
+                    {
+                        "environment": [
+                            {"name": key, "value": value}
+                            for key, value in mock_mwaa_environment_params.items()
+                        ],
+                        "name": "ECSExecutorContainer",  # Necessary parameter
+                    }
+                ]
+            }
         },
     )
     # [END howto_operator_sagemaker_unified_studio_notebook]
@@ -158,7 +170,6 @@ with DAG(
     # This test needs watcher in order to properly mark success/failure
     # when "tearDown" task with trigger rule is part of the DAG
     list(dag.tasks) >> watcher()
-
 
 from tests_common.test_utils.system_tests import get_test_run  # noqa: E402
 

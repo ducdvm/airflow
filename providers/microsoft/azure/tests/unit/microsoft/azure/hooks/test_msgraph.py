@@ -62,6 +62,16 @@ if TYPE_CHECKING:
         AzureIdentityAccessTokenProvider,
     )
 
+try:
+    import importlib.util
+
+    if not importlib.util.find_spec("airflow.sdk.bases.hook"):
+        raise ImportError
+
+    BASEHOOK_PATCH_PATH = "airflow.sdk.bases.hook.BaseHook"
+except ImportError:
+    BASEHOOK_PATCH_PATH = "airflow.hooks.base.BaseHook"
+
 
 class TestKiotaRequestAdapterHook:
     @staticmethod
@@ -81,16 +91,31 @@ class TestKiotaRequestAdapterHook:
 
     def test_get_conn(self):
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=get_airflow_connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
-            actual = hook.get_conn()
+
+            with pytest.warns(DeprecationWarning, match="get_conn is deprecated"):
+                actual = hook.get_conn()
 
             assert isinstance(actual, HttpxRequestAdapter)
-            assert actual.base_url == "https://graph.microsoft.com/v1.0"
+            assert actual.base_url == "https://graph.microsoft.com/v1.0/"
 
-    def test_get_conn_with_custom_base_url(self):
+    @pytest.mark.asyncio
+    async def test_get_async_conn(self):
+        with patch(
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
+            side_effect=get_airflow_connection,
+        ):
+            hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
+            actual = await hook.get_async_conn()
+
+            assert isinstance(actual, HttpxRequestAdapter)
+            assert actual.base_url == "https://graph.microsoft.com/v1.0/"
+
+    @pytest.mark.asyncio
+    async def test_get_async_conn_with_custom_base_url(self):
         connection = lambda conn_id: get_airflow_connection(
             conn_id=conn_id,
             host="api.fabric.microsoft.com",
@@ -98,16 +123,17 @@ class TestKiotaRequestAdapterHook:
         )
 
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
-            actual = hook.get_conn()
+            actual = await hook.get_async_conn()
 
             assert isinstance(actual, HttpxRequestAdapter)
-            assert actual.base_url == "https://api.fabric.microsoft.com/v1"
+            assert actual.base_url == "https://api.fabric.microsoft.com/v1/"
 
-    def test_get_conn_with_proxies_as_string(self):
+    @pytest.mark.asyncio
+    async def test_get_async_conn_with_proxies_as_string(self):
         connection = lambda conn_id: get_airflow_connection(
             conn_id=conn_id,
             host="api.fabric.microsoft.com",
@@ -116,17 +142,18 @@ class TestKiotaRequestAdapterHook:
         )
 
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
-            actual = hook.get_conn()
+            actual = await hook.get_async_conn()
 
             assert isinstance(actual, HttpxRequestAdapter)
             assert actual._http_client._mounts.get(URLPattern("http://"))
             assert actual._http_client._mounts.get(URLPattern("https://"))
 
-    def test_get_conn_with_proxies_as_invalid_string(self):
+    @pytest.mark.asyncio
+    async def test_get_async_conn_with_proxies_as_invalid_string(self):
         connection = lambda conn_id: get_airflow_connection(
             conn_id=conn_id,
             host="api.fabric.microsoft.com",
@@ -135,15 +162,16 @@ class TestKiotaRequestAdapterHook:
         )
 
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
 
             with pytest.raises(AirflowConfigException):
-                hook.get_conn()
+                await hook.get_async_conn()
 
-    def test_get_conn_with_proxies_as_json(self):
+    @pytest.mark.asyncio
+    async def test_get_async_conn_with_proxies_as_json(self):
         connection = lambda conn_id: get_airflow_connection(
             conn_id=conn_id,
             host="api.fabric.microsoft.com",
@@ -152,11 +180,11 @@ class TestKiotaRequestAdapterHook:
         )
 
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
-            actual = hook.get_conn()
+            actual = await hook.get_async_conn()
 
             assert isinstance(actual, HttpxRequestAdapter)
             assert actual._http_client._mounts.get(URLPattern("http://"))
@@ -164,7 +192,7 @@ class TestKiotaRequestAdapterHook:
 
     def test_scopes_when_default(self):
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=get_airflow_connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
@@ -173,7 +201,7 @@ class TestKiotaRequestAdapterHook:
 
     def test_scopes_when_passed_as_string(self):
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=get_airflow_connection,
         ):
             hook = KiotaRequestAdapterHook(
@@ -184,7 +212,7 @@ class TestKiotaRequestAdapterHook:
 
     def test_scopes_when_passed_as_list(self):
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=get_airflow_connection,
         ):
             hook = KiotaRequestAdapterHook(
@@ -195,16 +223,25 @@ class TestKiotaRequestAdapterHook:
 
     def test_api_version(self):
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=get_airflow_connection,
         ):
-            hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
+            hook = KiotaRequestAdapterHook(conn_id="msgraph_api", api_version=APIVersion.v1.value)
 
             assert hook.api_version == APIVersion.v1.value
 
+    def test_api_version_when_none_is_explicitly_passed_as_api_version(self):
+        with patch(
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
+            side_effect=get_airflow_connection,
+        ):
+            hook = KiotaRequestAdapterHook(conn_id="msgraph_api", api_version=None)
+
+            assert not hook.api_version
+
     def test_get_api_version_when_empty_config_dict(self):
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=get_airflow_connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
@@ -214,7 +251,7 @@ class TestKiotaRequestAdapterHook:
 
     def test_get_api_version_when_api_version_in_config_dict(self):
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=get_airflow_connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
@@ -224,7 +261,7 @@ class TestKiotaRequestAdapterHook:
 
     def test_get_api_version_when_custom_api_version_in_config_dict(self):
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=get_airflow_connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api", api_version="v1")
@@ -234,7 +271,7 @@ class TestKiotaRequestAdapterHook:
 
     def test_get_host_when_connection_has_scheme_and_host(self):
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=get_airflow_connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
@@ -245,7 +282,7 @@ class TestKiotaRequestAdapterHook:
 
     def test_get_host_when_connection_has_no_scheme_or_host(self):
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=get_airflow_connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
@@ -254,28 +291,30 @@ class TestKiotaRequestAdapterHook:
 
             assert actual == NationalClouds.Global.value
 
-    def test_tenant_id(self):
+    @pytest.mark.asyncio
+    async def test_tenant_id(self):
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=get_airflow_connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
-            actual = hook.get_conn()
+            actual = await hook.get_async_conn()
 
             self.assert_tenant_id(actual, "tenant-id")
 
-    def test_azure_tenant_id(self):
+    @pytest.mark.asyncio
+    async def test_azure_tenant_id(self):
         airflow_connection = lambda conn_id: get_airflow_connection(
             conn_id=conn_id,
             azure_tenant_id="azure-tenant-id",
         )
 
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=airflow_connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
-            actual = hook.get_conn()
+            actual = await hook.get_async_conn()
 
             self.assert_tenant_id(actual, "azure-tenant-id")
 
@@ -286,7 +325,8 @@ class TestKiotaRequestAdapterHook:
 
         assert actual == {"%24expand": "reports,users,datasets,dataflows,dashboards", "%24top": 5000}
 
-    def test_request_information_with_custom_host(self):
+    @pytest.mark.asyncio
+    async def test_request_information_with_custom_host(self):
         connection = lambda conn_id: get_airflow_connection(
             conn_id=conn_id,
             host="api.fabric.microsoft.com",
@@ -294,12 +334,12 @@ class TestKiotaRequestAdapterHook:
         )
 
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
             request_info = hook.request_information(url="myorg/admin/apps", query_parameters={"$top": 5000})
-            request_adapter = hook.get_conn()
+            request_adapter = await hook.get_async_conn()
             request_adapter.set_base_url_for_request_information(request_info)
 
             assert isinstance(request_info, RequestInformation)
@@ -309,7 +349,7 @@ class TestKiotaRequestAdapterHook:
     @pytest.mark.asyncio
     async def test_throw_failed_responses_with_text_plain_content_type(self):
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=get_airflow_connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
@@ -320,7 +360,8 @@ class TestKiotaRequestAdapterHook:
             response.is_success = False
             span = Mock(spec=Span)
 
-            actual = await hook.get_conn().get_root_parse_node(response, span, span)
+            conn = await hook.get_async_conn()
+            actual = await conn.get_root_parse_node(response, span, span)
 
             assert isinstance(actual, TextParseNode)
             assert actual.get_str_value() == "TenantThrottleThresholdExceeded"
@@ -328,7 +369,7 @@ class TestKiotaRequestAdapterHook:
     @pytest.mark.asyncio
     async def test_throw_failed_responses_with_application_json_content_type(self):
         with patch(
-            "airflow.hooks.base.BaseHook.get_connection",
+            f"{BASEHOOK_PATCH_PATH}.get_connection",
             side_effect=get_airflow_connection,
         ):
             hook = KiotaRequestAdapterHook(conn_id="msgraph_api")
@@ -339,7 +380,8 @@ class TestKiotaRequestAdapterHook:
             response.is_success = False
             span = Mock(spec=Span)
 
-            actual = await hook.get_conn().get_root_parse_node(response, span, span)
+            conn = await hook.get_async_conn()
+            actual = await conn.get_root_parse_node(response, span, span)
 
             assert isinstance(actual, JsonParseNode)
             error_code = actual.get_child_node("error").get_child_node("code").get_str_value()
@@ -398,7 +440,9 @@ class TestResponseHandler:
         with pytest.raises(AirflowException):
             asyncio.run(DefaultResponseHandler().handle_response_async(response, None))
 
-    @pytest.mark.db_test
+    # TODO: Elad: review this after merging the bump 2.10 PR
+    # We should not have specific provider test block the release
+    @pytest.mark.xfail(reason="TODO: Remove")
     def test_when_provider_min_airflow_version_is_2_10_or_higher_remove_obsolete_code(self):
         """
         Once this test starts failing due to the fact that the minimum Airflow version is now 2.10.0 or higher

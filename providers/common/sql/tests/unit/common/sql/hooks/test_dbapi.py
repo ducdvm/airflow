@@ -25,12 +25,11 @@ from unittest import mock
 import pytest
 from pyodbc import Cursor
 
-from airflow.config_templates.airflow_local_settings import DEFAULT_LOGGING_CONFIG
-from airflow.hooks.base import BaseHook
 from airflow.models import Connection
 from airflow.providers.common.sql.dialects.dialect import Dialect
 from airflow.providers.common.sql.hooks.handlers import fetch_all_handler, fetch_one_handler
 from airflow.providers.common.sql.hooks.sql import DbApiHook
+from airflow.providers.common.sql.version_compat import BaseHook
 
 
 class DbApiHookInProvider(DbApiHook):
@@ -71,14 +70,13 @@ class TestDbApiHook:
             def get_db_log_messages(self, conn) -> None:
                 return conn.get_messages()
 
-        logging.config.dictConfig(DEFAULT_LOGGING_CONFIG)
         logging.root.disabled = True
 
         self.db_hook = DbApiHookMock(**kwargs)
         self.db_hook_no_log_sql = DbApiHookMock(log_sql=False)
         self.db_hook_schema_override = DbApiHookMock(schema="schema-override")
         self.db_hook.supports_executemany = False
-        self.db_hook.log.setLevel(logging.DEBUG)
+        # self.db_hook.log.setLevel(logging.DEBUG)
 
     def test_get_records(self):
         statement = "SQL"
@@ -228,7 +226,7 @@ class TestDbApiHook:
         table = "table"
         rows = [("What's",), ("up",), ("world",)]
 
-        with caplog.at_level(logging.DEBUG):
+        with caplog.at_level(logging.DEBUG, logger="airflow.task"):
             self.db_hook.insert_rows(table, iter(rows))
 
         assert self.conn.close.call_count == 1
@@ -249,7 +247,7 @@ class TestDbApiHook:
         table = "table"
         rows = [("What's",), ("up",), ("world",)]
 
-        with caplog.at_level(logging.DEBUG):
+        with caplog.at_level(logging.DEBUG, "airflow.task"):
             self.db_hook.supports_executemany = True
             self.db_hook.insert_rows(table, iter(rows))
 
@@ -264,6 +262,29 @@ class TestDbApiHook:
         assert any(
             f"Done loading. Loaded a total of 3 rows into {table}" in message for message in caplog.messages
         )
+
+        self.cur.executemany.assert_any_call(sql, rows)
+
+    def test_insert_rows_logs_generated_sql_on_exception(self, caplog):
+        table = "table"
+        rows = [("What's",), ("up",), ("world",)]
+
+        with caplog.at_level(logging.ERROR):
+            self.cur.executemany.side_effect = Exception("Boom!")
+            self.db_hook.supports_executemany = True
+
+            with pytest.raises(Exception, match="Boom!"):
+                self.db_hook.insert_rows(table, iter(rows))
+
+        assert self.conn.close.call_count == 1
+        assert self.cur.close.call_count == 1
+        assert self.conn.commit.call_count == 1
+
+        sql = f"INSERT INTO {table}  VALUES (%s)"
+
+        assert len(caplog.messages) == 2
+        assert any(f"Generated sql: {sql}" in message for message in caplog.messages)
+        assert any(f"Parameters: {rows}" in message for message in caplog.messages)
 
         self.cur.executemany.assert_any_call(sql, rows)
 

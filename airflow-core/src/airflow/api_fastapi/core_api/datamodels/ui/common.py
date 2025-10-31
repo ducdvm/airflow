@@ -22,8 +22,8 @@ from typing import Generic, Literal, TypeVar
 
 from pydantic import computed_field
 
+from airflow._shared.timezones import timezone
 from airflow.api_fastapi.core_api.base import BaseModel
-from airflow.utils import timezone
 from airflow.utils.state import TaskInstanceState
 from airflow.utils.types import DagRunType
 
@@ -81,7 +81,7 @@ class GridRunsResponse(BaseModel):
     run_type: DagRunType
 
     @computed_field
-    def duration(self) -> int | None:
+    def duration(self) -> int:
         if self.start_date:
             end_date = self.end_date or timezone.utcnow()
             return (end_date - self.start_date).seconds
@@ -93,12 +93,3 @@ class BaseGraphResponse(BaseModel, Generic[E, N]):
 
     edges: list[E]
     nodes: list[N]
-
-
-class LatestRunResponse(BaseModel):
-    """Base Node serializer for responses."""
-
-    id: int
-    dag_id: str
-    run_id: str
-    run_after: datetime

@@ -62,7 +62,10 @@ class TestGitSyncWebserver:
 
     def test_should_have_service_account_defined(self):
         docs = render_chart(
-            values={"dags": {"gitSync": {"enabled": True}, "persistence": {"enabled": True}}},
+            values={
+                "airflowVersion": "2.10.0",
+                "dags": {"gitSync": {"enabled": True}, "persistence": {"enabled": True}},
+            },
             show_only=["templates/webserver/webserver-deployment.yaml"],
         )
 
@@ -158,6 +161,7 @@ class TestGitSyncWebserver:
     def test_validate_sshkeysecret_not_added_when_persistence_is_enabled(self):
         docs = render_chart(
             values={
+                "airflowVersion": "2.10.4",
                 "dags": {
                     "gitSync": {
                         "enabled": True,
@@ -167,7 +171,7 @@ class TestGitSyncWebserver:
                         "branch": "test-branch",
                     },
                     "persistence": {"enabled": True},
-                }
+                },
             },
             show_only=["templates/webserver/webserver-deployment.yaml"],
         )
@@ -192,3 +196,47 @@ class TestGitSyncWebserver:
             "name": "git-sync-ssh-key",
             "secret": {"secretName": "release-name-ssh-secret", "defaultMode": 288},
         } in jmespath.search("spec.template.spec.volumes", docs[0])
+
+    def test_liveliness_and_readiness_probes_are_configurable(self):
+        """If Airflow < 2.0.0 - test git sync related containers, volume mounts & volumes are created."""
+        livenessProbe = {
+            "failureThreshold": 10,
+            "exec": {"command": ["/bin/true"]},
+            "initialDelaySeconds": 0,
+            "periodSeconds": 1,
+            "successThreshold": 1,
+            "timeoutSeconds": 5,
+        }
+        readinessProbe = {
+            "failureThreshold": 10,
+            "exec": {"command": ["/bin/true"]},
+            "initialDelaySeconds": 0,
+            "periodSeconds": 1,
+            "successThreshold": 1,
+            "timeoutSeconds": 5,
+        }
+        docs = render_chart(
+            values={
+                "airflowVersion": "1.10.14",
+                "dags": {
+                    "gitSync": {
+                        "enabled": True,
+                        "livenessProbe": livenessProbe,
+                        "readinessProbe": readinessProbe,
+                    },
+                },
+            },
+            show_only=["templates/webserver/webserver-deployment.yaml"],
+        )
+        container_search_result = jmespath.search(
+            "spec.template.spec.containers[?name == 'git-sync']", docs[0]
+        )
+        init_container_search_result = jmespath.search(
+            "spec.template.spec.initContainers[?name == 'git-sync-init']", docs[0]
+        )
+        assert "livenessProbe" in container_search_result[0]
+        assert "readinessProbe" in container_search_result[0]
+        assert "readinessProbe" not in init_container_search_result[0]
+        assert "readinessProbe" not in init_container_search_result[0]
+        assert livenessProbe == container_search_result[0]["livenessProbe"]
+        assert readinessProbe == container_search_result[0]["readinessProbe"]
