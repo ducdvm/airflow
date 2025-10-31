@@ -35,17 +35,3 @@ login_router = AirflowRouter(tags=["KeycloakAuthManagerLogin"])
 def create_token(body: LoginBody) -> LoginResponse:
     """Generate a new API token."""
     return LoginResponse(access_token=KeycloakAuthManagerLogin.create_token(body=body))
-
-#
-# @login_router.post(
-#     "/token/cli",
-#     response_model=LoginResponse,
-#     status_code=status.HTTP_201_CREATED,
-#     responses=create_openapi_http_exception_doc([status.HTTP_400_BAD_REQUEST, status.HTTP_401_UNAUTHORIZED]),
-# )
-# def create_token_cli(body: LoginBody) -> LoginResponse:
-#     """Generate a new CLI API token."""
-#     return LoginResponse(access_token=KeycloakAuthManagerLogin.create_token(
-#         body=body, expiration_time_in_seconds=conf.getint("api_auth", "jwt_cli_expiration_time")
-#     ))
-#

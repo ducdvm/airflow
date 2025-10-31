@@ -1405,6 +1405,14 @@ repos:
         files: ^airflow-core/src/airflow/api_fastapi/.*\.py$|^airflow-core/src/airflow/api_fastapi/auth/managers/simple/.*\.py$|^providers/fab/src/airflow/providers/fab/auth_manager/api_fastapi/.*\.py$
         exclude: ^airflow-core/src/airflow/api_fastapi/execution_api/.*
         additional_dependencies: ['rich>=12.4.4', 'openapi-spec-validator>=0.7.1']
+      - id: generate-openapi-spec-keycloak
+        name: Generate the FastAPI API spec for Keycloak
+        language: python
+        entry: ./scripts/ci/pre_commit/generate_openapi_spec_keycloak.py
+        pass_filenames: false
+        files: ^airflow-core/src/airflow/api_fastapi/.*\.py$|^airflow-core/src/airflow/api_fastapi/auth/managers/simple/.*\.py$|^providers/fab/src/airflow/providers/fab/auth_manager/api_fastapi/.*\.py$|^providers/keycloak/src/airflow/providers/keycloak/auth_manager/api_fastapi/.*\.py$
+        exclude: ^airflow-core/src/airflow/api_fastapi/execution_api/.*
+        additional_dependencies: [ 'rich>=12.4.4', 'openapi-spec-validator>=0.7.1' ]
       - id: check-provider-yaml-valid
         name: Validate provider.yaml files
         entry: ./scripts/ci/pre_commit/check_provider_yaml_files.py

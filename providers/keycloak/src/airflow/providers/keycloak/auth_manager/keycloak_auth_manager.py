@@ -179,7 +179,7 @@ class KeycloakAuthManager(BaseAuthManager[KeycloakUser]):
             login_router,
         )
 
-        directory = Path(__file__).parent.parent.joinpath("ui", "dist")
+        directory = Path(__file__).parent.joinpath("ui", "dist")
         directory.mkdir(exist_ok=True)
 
         templates = Jinja2Templates(directory=directory)
