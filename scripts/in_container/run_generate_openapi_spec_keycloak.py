@@ -28,8 +28,12 @@ sys.path.insert(0, str(Path(__file__).parent.resolve()))
 from in_container_utils import console, generate_openapi_file, validate_openapi_file
 
 KEYCLOAK_AUTH_MANAGER_OPENAPI_SPEC_FILE = (
-    Path(KEYCLOAK_AUTH_MANAGER_API_PATH).parent / "openapi" / "v0.0.1-keycloak-auth-manager-generated.yaml"
+    Path(KEYCLOAK_AUTH_MANAGER_API_PATH).parent / "openapi" / "v1-keycloak-auth-manager-generated.yaml"
 )
+
+if not KEYCLOAK_AUTH_MANAGER_OPENAPI_SPEC_FILE.exists():
+    KEYCLOAK_AUTH_MANAGER_OPENAPI_SPEC_FILE.parent.mkdir(parents=True, exist_ok=True)
+    KEYCLOAK_AUTH_MANAGER_OPENAPI_SPEC_FILE.touch()
 
 ProvidersManager().initialize_providers_configuration()
 
@@ -41,5 +45,3 @@ if keycloak_auth_manager_app:
 else:
     console.print("[red]Keycloak auth manager app not found. Skipping OpenAPI spec generation.[/]")
     sys.exit(1)
-
-
