@@ -16,11 +16,18 @@ import {
   TableRow,
   TableScrollArea,
 } from "@chakra-ui/react";
-import { useState } from "react";
-import { LuChevronLeft, LuChevronRight, LuSearch, LuSquarePen, LuDelete } from "react-icons/lu";
+import { useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { LuChevronLeft, LuChevronRight, LuDelete, LuSearch, LuSquarePen } from "react-icons/lu";
 import { useNavigate } from "react-router-dom";
 
+import { Toaster, toaster } from "src/components/ui/toaster.tsx";
+import { useDeleteUser, useGetUsers } from "src/queries/users.ts";
 import { User } from "src/types/user.ts";
+
+import { useKeycloakAuthManagerSecurityServiceGetUsersKey } from "../../../openapi-gen/queries";
+
+type UserRow = Omit<User, "password" | "createdAt">;
 
 const size = createListCollection({
   items: [
@@ -31,56 +38,124 @@ const size = createListCollection({
 });
 
 export const UserTable = () => {
+  const { data: users } = useGetUsers();
   const [selection, setSelection] = useState<string[]>([]);
   const [page, setPage] = useState<number>(1);
+  const queryClient = useQueryClient();
+  const rowData = useMemo<UserRow[]>(
+    () =>
+      users?.map((user) => ({
+        userid: user.userid!,
+        username: user.username,
+        firstName: user.first_name || "",
+        lastName: user.last_name || "",
+        email: user.email || "",
+        emailVerified: user.email_verified || false,
+        role: user.roles?.[0] || "No Role",
+        createdTimeStamp: user.created_timestamp || 0,
+      })) ?? [],
+    [users],
+  );
+
+  const adminRows = rowData.filter((row) => row.role !== "Admin");
   const [pageSize, setPageSize] = useState<number>(5);
   const navigate = useNavigate();
 
-  const pageCount = Math.max(1, Math.ceil(users.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(rowData.length / pageSize));
 
   const hasSelection = selection.length > 0;
-  const indeterminate = hasSelection && selection.length < users.length;
+  const indeterminate = hasSelection && selection.length + adminRows.length < rowData.length;
 
-  const visibleItems = users.slice((page - 1) * pageSize, page * pageSize);
+  const visibleItems = rowData.slice((page - 1) * pageSize, page * pageSize);
 
-  const onDeleteUser = () => {
+  const { deleteUser } = useDeleteUser({
+    onSuccess: (userid) => {
+      console.log("User deleted:", userid);
+    },
+  });
+
+  const onDeleteUser = async () => {
     if (selection.length === 0) {
       console.warn("No user selected for deletion.");
       return;
     }
-    console.log("delete user");
+    console.log("delete user", selection);
+
+    const usernames = selection
+      .map((id) => rowData.find((user) => user.userid === id)?.username)
+      .filter(Boolean)
+      .join(", ");
+
+    const confirmMessage =
+      selection.length === 1
+        ? `Are you sure you want to delete user "${usernames}"?`
+        : `Are you sure you want to delete ${selection.length} users (${usernames})?`;
+
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      const deleteAllPromise = Promise.all(selection.map((userid) => deleteUser(userid)));
+
+      toaster.promise(deleteAllPromise, {
+        success: {
+          title: "Successfully deleted!",
+          description: `${selection.length} user(s) have been deleted successfully.`,
+          duration: 2000,
+        },
+        error: {
+          title: "Delete failed",
+          description: "Some users could not be deleted.",
+        },
+        loading: {
+          title: "Deleting users...",
+          description: `Deleting ${selection.length} user(s), please wait`,
+        },
+      });
+
+      await deleteAllPromise;
+
+      await queryClient.invalidateQueries({
+        queryKey: [useKeycloakAuthManagerSecurityServiceGetUsersKey],
+      });
+
+      setSelection([]);
+    } catch (err) {
+      console.error("Bulk delete error:", err);
+    }
   };
 
   const onAddUser = () => {
     navigate("/users/add");
   };
 
-  const onEditUser = (user: User) => {
-    navigate("/users/edit", { state: user });
+  const onEditUser = (user: UserRow) => {
+    navigate(`/users/${user.userid}/edit`, { state: user });
   };
 
-  const rows = visibleItems.map((item) => (
-    <Table.Row key={item.username} data-selected={selection.includes(item.username) ? "" : undefined}>
+  const rows = visibleItems.map((item: UserRow) => (
+    <Table.Row key={item.userid} data-selected={selection.includes(item.userid) ? "" : undefined}>
       <Table.Cell>
         <Checkbox.Root
           size="sm"
           top="0.5"
           aria-label="Select row"
-          checked={selection.includes(item.username)}
+          checked={selection.includes(item.userid)}
           onCheckedChange={(changes) => {
             setSelection((prev) =>
-              changes.checked
-                ? [...prev, item.username]
-                : prev.filter((username) => username !== item.username),
+              changes.checked ? [...prev, item.userid] : prev.filter((userid) => userid !== item.userid),
             );
           }}
+          disabled={item.role === "Admin"}
         >
           <Checkbox.HiddenInput />
           <Checkbox.Control />
         </Checkbox.Root>
       </Table.Cell>
       <Table.Cell>{item.username}</Table.Cell>
-      <Table.Cell>{item.email}</Table.Cell>
+      <Table.Cell maxWidth="24">{item.email}</Table.Cell>
+      <Table.Cell>{item.emailVerified ? "Yes" : "No"}</Table.Cell>
       <Table.Cell>{item.lastName}</Table.Cell>
       <Table.Cell>{item.firstName}</Table.Cell>
       <Table.Cell>{item.role}</Table.Cell>
@@ -91,7 +166,7 @@ export const UserTable = () => {
             size="2xs"
             variant="surface"
             colorPalette="blue"
-            onClick={() => navigate(`/users/${item.username}`, { state: item })}
+            onClick={() => navigate(`/users/${item.userid}/info`, { state: item })}
           >
             <LuSearch />
           </IconButton>
@@ -101,7 +176,7 @@ export const UserTable = () => {
             variant="surface"
             colorPalette="blue"
             onClick={() => {
-              onEditUser({ ...item, password: "" });
+              onEditUser(item);
             }}
           >
             <LuSquarePen />
@@ -115,7 +190,7 @@ export const UserTable = () => {
     <>
       <Flex align="center" justify="space-between" w="full" mb={4}>
         <Heading as="h3" size="xl">
-          Users List
+          Users
         </Heading>
         <Button size="sm" colorPalette="brand" onClick={() => onAddUser?.()}>
           Create
@@ -135,7 +210,7 @@ export const UserTable = () => {
                   aria-label="Select all rows"
                   checked={indeterminate ? "indeterminate" : selection.length > 0}
                   onCheckedChange={(changes) => {
-                    setSelection(changes.checked ? users.map((item) => item.username) : []);
+                    setSelection(changes.checked ? adminRows.map((item) => item.userid) : []);
                   }}
                 >
                   <Checkbox.HiddenInput />
@@ -147,6 +222,9 @@ export const UserTable = () => {
               </Table.ColumnHeader>
               <Table.ColumnHeader>
                 <strong>Email</strong>
+              </Table.ColumnHeader>
+              <Table.ColumnHeader>
+                <strong>Verified?</strong>
               </Table.ColumnHeader>
               <Table.ColumnHeader>
                 <strong>Last name</strong>
@@ -166,7 +244,7 @@ export const UserTable = () => {
 
           {/*footer*/}
           <Table.Footer>
-            <TableRow position="sticky" bottom={0} zIndex={1} bg="bg.subtle" borderTopWidth={1}>
+            <TableRow position="sticky" bottom={0} zIndex={1} borderTopWidth={1}>
               <TableCell colSpan={7} bg="transparent" borderTopWidth={0}>
                 <Flex justify="flex-end" align="center" px={4} py={2} gap={4}>
                   <Box px={4}>Select page size</Box>
@@ -175,9 +253,9 @@ export const UserTable = () => {
                     size="sm"
                     width="240px"
                     collection={size}
-                    defaultValue={[pageSize.toString()]}
+                    defaultValue={[rowData.length.toString()]}
                     onValueChange={(details) => {
-                      const newSize = parseInt(details.value[0], 10);
+                      const newSize = parseInt(details.value[0] ?? pageSize.toString(), 10);
                       setPageSize(newSize);
                       setPage(1);
                     }}
@@ -206,10 +284,7 @@ export const UserTable = () => {
                   </Select.Root>
 
                   <Heading as="h4" size="sm" textAlign="right" color="fg.muted">
-                    Record Count:
-                    <Box as="span" ml={2}>
-                      {users.length} records
-                    </Box>
+                    Record Count: {rowData.length} records
                   </Heading>
                 </Flex>
               </TableCell>
@@ -224,7 +299,7 @@ export const UserTable = () => {
             <ActionBar.Content>
               <ActionBar.SelectionTrigger>{selection.length} selected</ActionBar.SelectionTrigger>
               <ActionBar.Separator />
-              <Button variant="outline" size="sm" onClick={onDeleteUser}>
+              <Button variant="outline" colorPalette={"red"} size="sm" onClick={onDeleteUser}>
                 Delete <LuDelete />
               </Button>
             </ActionBar.Content>
@@ -233,7 +308,7 @@ export const UserTable = () => {
       </ActionBar.Root>
 
       <Pagination.Root
-        count={users.length}
+        count={rowData.length}
         pageSize={pageSize}
         page={page}
         onPageChange={(details) => setPage(details.page)}
@@ -264,122 +339,8 @@ export const UserTable = () => {
           </Pagination.NextTrigger>
         </ButtonGroup>
       </Pagination.Root>
+
+      <Toaster />
     </>
   );
 };
-
-const users = [
-  { username: "admin", email: "admin@example.com", lastName: "Airflow", firstName: "Admin", role: "Admin" },
-  { username: "user", email: "admin@example.com", lastName: "Airflow", firstName: "User", role: "User" },
-  {
-    username: "userone",
-    email: "admin@example.com",
-    lastName: "Airflow",
-    firstName: "UserOne",
-    role: "User",
-  },
-  {
-    username: "userviewer",
-    email: "admin@example.com",
-    lastName: "Airflow",
-    firstName: "Viewer",
-    role: "Viewer",
-  },
-  { username: "userop", email: "admin@example.com", lastName: "Airflow", firstName: "Op", role: "Op" },
-  { username: "johndoe", email: "johndoe@example.com", lastName: "Doe", firstName: "John", role: "User" },
-  { username: "janedoe", email: "janedoe@example.com", lastName: "Doe", firstName: "Jane", role: "Admin" },
-  {
-    username: "bobsmith",
-    email: "bobsmith@example.com",
-    lastName: "Smith",
-    firstName: "Bob",
-    role: "Viewer",
-  },
-  { username: "alicejones", email: "alice@example.com", lastName: "Jones", firstName: "Alice", role: "Op" },
-  { username: "mikebrown", email: "mike@example.com", lastName: "Brown", firstName: "Mike", role: "User" },
-  {
-    username: "sarahwilson",
-    email: "sarah@example.com",
-    lastName: "Wilson",
-    firstName: "Sarah",
-    role: "Admin",
-  },
-  { username: "tomclark", email: "tom@example.com", lastName: "Clark", firstName: "Tom", role: "Viewer" },
-  { username: "emmadavis", email: "emma@example.com", lastName: "Davis", firstName: "Emma", role: "User" },
-  {
-    username: "chrismiller",
-    email: "chris@example.com",
-    lastName: "Miller",
-    firstName: "Chris",
-    role: "Op",
-  },
-  {
-    username: "peterwhite",
-    email: "peter@example.com",
-    lastName: "White",
-    firstName: "Peter",
-    role: "User",
-  },
-  { username: "lucygreen", email: "lucy@example.com", lastName: "Green", firstName: "Lucy", role: "Admin" },
-  {
-    username: "markthomas",
-    email: "mark@example.com",
-    lastName: "Thomas",
-    firstName: "Mark",
-    role: "Viewer",
-  },
-  { username: "annawright", email: "anna@example.com", lastName: "Wright", firstName: "Anna", role: "Op" },
-  { username: "jamesking", email: "james@example.com", lastName: "King", firstName: "James", role: "User" },
-  {
-    username: "oliviahill",
-    email: "olivia@example.com",
-    lastName: "Hill",
-    firstName: "Olivia",
-    role: "Admin",
-  },
-  {
-    username: "williamtaylor",
-    email: "william@example.com",
-    lastName: "Taylor",
-    firstName: "William",
-    role: "Viewer",
-  },
-  {
-    username: "sophiabaker",
-    email: "sophia@example.com",
-    lastName: "Baker",
-    firstName: "Sophia",
-    role: "Op",
-  },
-  {
-    username: "henrymorris",
-    email: "henry@example.com",
-    lastName: "Morris",
-    firstName: "Henry",
-    role: "User",
-  },
-  {
-    username: "isabellaross",
-    email: "isabella@example.com",
-    lastName: "Ross",
-    firstName: "Isabella",
-    role: "Admin",
-  },
-  {
-    username: "danielwood",
-    email: "daniel@example.com",
-    lastName: "Wood",
-    firstName: "Daniel",
-    role: "Viewer",
-  },
-  { username: "avacooper", email: "ava@example.com", lastName: "Cooper", firstName: "Ava", role: "User" },
-  {
-    username: "jacksonhall",
-    email: "jackson@example.com",
-    lastName: "Hall",
-    firstName: "Jackson",
-    role: "Op",
-  },
-  { username: "miabutler", email: "mia@example.com", lastName: "Butler", firstName: "Mia", role: "Admin" },
-  { username: "davidlee", email: "david@example.com", lastName: "Lee", firstName: "David", role: "User" },
-];

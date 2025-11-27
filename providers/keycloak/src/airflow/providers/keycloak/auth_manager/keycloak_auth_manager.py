@@ -37,9 +37,15 @@ from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
 from airflow.providers.keycloak.auth_manager.api_fastapi.models import KeycloakUser
+from airflow.providers.keycloak.auth_manager.api_fastapi.routes.login import login_router
+
+from airflow.providers.keycloak.auth_manager.api_fastapi.routes.security import security_router
+
+
 from .config import get_kc_action_from_method_map, get_map_kc_role_to_permission, \
     get_map_dag_access_entity_to_resource_type, get_map_access_view_to_resource_type
 from .config import get_map_menu_item_to_keycloak_resource_type
+
 
 
 class KeycloakAuthManager(BaseAuthManager[KeycloakUser]):
@@ -175,10 +181,6 @@ class KeycloakAuthManager(BaseAuthManager[KeycloakUser]):
         This sub application, if specified, is mounted in the main FastAPI application.
         """
 
-        from airflow.providers.keycloak.auth_manager.api_fastapi.routes.login import (
-            login_router,
-        )
-
         directory = Path(__file__).parent.joinpath("ui", "dist")
         directory.mkdir(exist_ok=True)
 
@@ -195,6 +197,7 @@ class KeycloakAuthManager(BaseAuthManager[KeycloakUser]):
         )
 
         app.include_router(login_router)
+        app.include_router(security_router)
 
         app.mount(
             "/static",
@@ -206,7 +209,7 @@ class KeycloakAuthManager(BaseAuthManager[KeycloakUser]):
         )
 
         @app.get("/{rest_of_path:path}", response_class=HTMLResponse, include_in_schema=False)
-        def webapp(request: Request):
+        def webapp(request: Request, rest_of_path: str):
             return templates.TemplateResponse(
                 "index.html",
                 {"request": request, "backend_server_base_url": request.base_url.path},
@@ -214,41 +217,6 @@ class KeycloakAuthManager(BaseAuthManager[KeycloakUser]):
             )
 
         return app
-
-    def get_extra_menu_items(self, *, user: KeycloakUser) -> list[ExtraMenuItem]:
-        items = [
-            {
-                "resource_type": "Users",
-                "text": "Users",
-                "href": f"{AUTH_MANAGER_FASTAPI_APP_PREFIX}/users/list/",
-            },
-            {
-                "resource_type": "Roles",
-                "text": "Roles",
-                "href": f"{AUTH_MANAGER_FASTAPI_APP_PREFIX}/roles/list/",
-            },
-            # {
-            #     "resource_type": "Actions",
-            #     "text": "Actions",
-            #     "href": f"{AUTH_MANAGER_FASTAPI_APP_PREFIX}/actions/list/",
-            # },
-            # {
-            #     "resource_type": "Resources",
-            #     "text": "Resources",
-            #     "href": f"{AUTH_MANAGER_FASTAPI_APP_PREFIX}/resources/list/",
-            # },
-            {
-                "resource_type": "Permissions",
-                "text": "Permissions",
-                "href": f"{AUTH_MANAGER_FASTAPI_APP_PREFIX}/permissions/list/",
-            },
-        ]
-
-        return [
-            ExtraMenuItem(text=item["text"], href=item["href"])
-            for item in items
-            if self._is_authorized(method="MENU", resource_type=item["resource_type"], user=user)
-        ]
 
     def _is_authorized(
         self,
@@ -285,12 +253,12 @@ class KeycloakAuthManager(BaseAuthManager[KeycloakUser]):
 
         user_roles = user.roles
 
-        permissions = []
+        user_permissions = []
 
         for role in user_roles:
-            permissions += get_map_kc_role_to_permission(role.upper())
+            user_permissions += get_map_kc_role_to_permission(role.upper())
 
-        return permissions
+        return user_permissions
 
     def _is_authorized_dag_details(
         self,

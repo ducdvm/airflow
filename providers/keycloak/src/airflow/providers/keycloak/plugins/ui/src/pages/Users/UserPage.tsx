@@ -1,19 +1,12 @@
-import { Box, Button, VStack } from "@chakra-ui/react";
-
-import { useColorMode } from "src/context/colorMode";
+import { Box, VStack } from "@chakra-ui/react";
 
 import { UserTable } from "./UserTable";
 
 export const UserPage = () => {
-  const { colorMode, setColorMode } = useColorMode();
-
   return (
-    <Box p={8} bg="bg.subtle" flexGrow={1} height="100%">
+    <Box p={5} mt={5} flexGrow={1} height="100%" borderRadius={10} borderWidth={2}>
       <VStack>
         <UserTable />
-        <Button onClick={() => setColorMode(colorMode === "dark" ? "light" : "dark")} colorPalette="brand">
-          Toggle Theme
-        </Button>
       </VStack>
     </Box>
   );

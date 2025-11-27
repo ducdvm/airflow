@@ -12,13 +12,14 @@ import {
 } from "@chakra-ui/react";
 import { type Options, passwordStrength } from "check-password-strength";
 import { useEffect, useMemo, useState } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { FaRegSave } from "react-icons/fa";
 import { IoMdArrowBack } from "react-icons/io";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { PasswordInput, PasswordStrengthMeter } from "src/components/ui/password-input.tsx";
 import { toaster, Toaster } from "src/components/ui/toaster.tsx";
+import { useCreateUser, useUpdateUser } from "src/queries/users.ts";
 import { User } from "src/types/user.ts";
 
 type UserInfoProps = {
@@ -41,12 +42,29 @@ const roles = createListCollection({
   ],
 });
 
+type UserFormValues = {
+  userid: User["userid"];
+  username: User["username"];
+  firstName: User["firstName"];
+  lastName: User["lastName"];
+  email: User["email"];
+  role: User["role"];
+  password: User["password"];
+  confirmPassword: string;
+};
+
 export const UserForm = ({ isEditMode }: UserInfoProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [canChangePassword, setCanChangePassword] = useState<boolean>(false);
 
-  const { control, handleSubmit, setValue, watch } = useForm<User>({
+  const {
+    control,
+    handleSubmit,
+    setValue,
+    watch,
+    formState: { dirtyFields },
+  } = useForm<UserFormValues>({
     defaultValues: {
       username: "",
       firstName: "",
@@ -54,6 +72,19 @@ export const UserForm = ({ isEditMode }: UserInfoProps) => {
       email: "",
       role: "",
       password: "",
+      confirmPassword: "",
+    },
+  });
+
+  const { createUser } = useCreateUser({
+    onSuccess: (data) => {
+      console.log("User created successfully:", data);
+    },
+  });
+
+  const { updateUser } = useUpdateUser({
+    onSuccess: (data) => {
+      console.log("User updated successfully:", data);
     },
   });
 
@@ -67,10 +98,10 @@ export const UserForm = ({ isEditMode }: UserInfoProps) => {
 
   useEffect(() => {
     if (isEditMode) {
-      const userFromState = location.state as User | undefined;
+      const userFromState = location.state as UserFormValues | undefined;
       if (userFromState) {
         Object.entries(userFromState).forEach(([key, value]) => {
-          setValue(key as keyof User, value);
+          setValue(key as keyof UserFormValues, value);
         });
       } else {
         console.warn("No user data found in navigation state");
@@ -79,55 +110,109 @@ export const UserForm = ({ isEditMode }: UserInfoProps) => {
     }
   }, [isEditMode, location.state, navigate, setValue]);
 
-  const checkPasswordConfirmation = (ps1: string | undefined, ps2: string | undefined) => {
-    if (!ps1 && !ps2) return false;
-    if (!ps1 || !ps2 || ps1 !== ps2) {
-      toaster.error({
-        title: "Password mismatch",
-        description: "Passwords do not match.",
-        duration: 3000,
-      });
-      return false;
-    }
-    return true;
-  };
-
-  const onSubmit = async (user: User): Promise<void> => {
-    const passwordFilled = (): boolean => {
-      if (!isEditMode || canChangePassword) return !!user.password;
-      return true;
+  const onSubmit = async (user: UserFormValues): Promise<void> => {
+    // edit mode
+    const finalUser = {
+      ...user,
+      role: user.role || "Viewer", // fallback role
     };
+    if (isEditMode) {
+      // remove confirmPassword from changedValues
+      const changedValues = (
+        Object.keys(dirtyFields).filter((key) => key != "confirmPassword") as (keyof Omit<
+          UserFormValues,
+          "confirmPassword"
+        >)[]
+      ).reduce((acc, key) => {
+        acc[key] = user[key];
+        return acc;
+      }, {} as Partial<UserFormValues>);
 
-    if (
-      !user.username ||
-      !user.firstName ||
-      !user.lastName ||
-      !user.email ||
-      !user.role ||
-      !passwordFilled()
-    ) {
-      toaster.error({
-        title: "Missing fields",
-        description: "Please fill in all required fields.",
-        duration: 3000,
+      const promise = updateUser(user.userid!, changedValues);
+
+      toaster.promise(promise, {
+        success: {
+          title: "Successfully updated!",
+          description: "User has been updated successfully.",
+          duration: 2000,
+        },
+        error: (err: unknown) => {
+          let message = "Unknown error";
+          console.log(err)
+          if (err instanceof Error) {
+            message = err.message;
+          } else if (typeof err === "string") {
+            message = err;
+          } else if (typeof err === "object" && err !== null) {
+            message = (err as any).message ?? message;
+          }
+
+          if (message === "username") {
+            message = `Username ${finalUser.username} already exists!`;
+          } else {
+            message = `Email ${finalUser.email} already exists!`;
+          }
+          return {
+            title: "Upload failed",
+            description: message,
+          };
+        },
+        loading: {
+          title: "Updating...",
+          description: "Please wait",
+        },
       });
+
+      const result = await promise;
+
+      if (result.errorCode) {
+        return;
+      }
+
+      setTimeout(() => {
+        navigate("/users");
+      }, 1000);
+
       return;
     }
 
-    const promise = new Promise<void>((resolve) => {
-      setTimeout(() => resolve(), 3000);
-      // your logic here
+    // create mode
+    const promise = createUser({
+      username: finalUser.username,
+      email: finalUser.email,
+      first_name: finalUser.firstName,
+      last_name: finalUser.lastName,
+      enabled: true,
+      email_verified: false,
+      role: finalUser.role,
+      password: finalUser.password,
     });
 
     toaster.promise(promise, {
       success: {
         title: "Successfully uploaded!",
-        description: "Looks great",
-        duration: 5000,
+        description: "User has been created successfully.",
       },
-      error: {
-        title: "Upload failed",
-        description: "Something's wrong with the upload",
+      error: (err: unknown) => {
+        let message = "Unknown error";
+        console.log(err)
+        if (err instanceof Error) {
+          message = err.message;
+        } else if (typeof err === "string") {
+          message = err;
+        } else if (typeof err === "object" && err !== null) {
+          message = (err as any).message ?? message;
+        }
+
+        if (message === "username") {
+          message = `Username ${finalUser.username} already exists!`;
+        } else {
+          message = `Email ${finalUser.email} already exists!`;
+        }
+        return {
+          title: "Upload failed",
+          description: message,
+        };
       },
       loading: {
         title: "Uploading...",
@@ -135,7 +220,21 @@ export const UserForm = ({ isEditMode }: UserInfoProps) => {
       },
     });
 
-    console.log("User info:", user);
+    const result = await promise;
+
+    if (result.errorCode) {
+      return;
+    }
+
+    const data = result.data;
+
+    setTimeout(() => {
+      navigate("/users", {
+        state: {
+          newUser: data,
+        },
+      });
+    }, 1000);
   };
 
   const toggleChangePassword = () => setCanChangePassword((prev) => !prev);
@@ -143,7 +242,7 @@ export const UserForm = ({ isEditMode }: UserInfoProps) => {
   return (
     <form onSubmit={handleSubmit(onSubmit)}>
       <VStack w="full" align="stretch">
-        <Box borderWidth="1px" borderColor="border.disabled" borderRadius="md" p={4}>
+        <Box borderColor="border.disabled" borderRadius={10} borderWidth={2} mb={5} p={4}>
           <Grid templateColumns="repeat(4, 1fr)" gap="6">
             {/* First Name */}
             <GridItem colSpan={1}>
@@ -199,10 +298,15 @@ export const UserForm = ({ isEditMode }: UserInfoProps) => {
               <Controller
                 control={control}
                 name="username"
-                rules={{ required: true }}
-                render={({ field }) => (
-                  <Field.Root required>
-                    <Input placeholder="Username" {...field} />
+                rules={{
+                  required: true,
+                  minLength: { value: 3, message: "Username must be at least 3 characters" },
+                }}
+                render={({ field, fieldState: { error } }) => (
+                  <Field.Root required invalid={!!error} disabled={isEditMode}>
+                    <Input placeholder="Username" autoComplete={"new-password"} {...field} />
+                    <Field.HelperText>Username cannot be changed once created</Field.HelperText>
+                    {error && <Field.ErrorText>{error.message}</Field.ErrorText>}
                   </Field.Root>
                 )}
               />
@@ -220,10 +324,17 @@ export const UserForm = ({ isEditMode }: UserInfoProps) => {
               <Controller
                 control={control}
                 name="email"
-                rules={{ required: true }}
-                render={({ field }) => (
-                  <Field.Root required>
-                    <Input type="email" placeholder="Email" {...field} />
+                rules={{
+                  required: true,
+                  pattern: {
+                    value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                    message: "Please enter a valid email address",
+                  },
+                }}
+                render={({ field, fieldState }) => (
+                  <Field.Root required invalid={!!fieldState.error}>
+                    <Input type="email" placeholder="Email" autoComplete={"new-password"} {...field} />
+                    {fieldState.error && <Field.ErrorText>{fieldState.error.message}</Field.ErrorText>}
                   </Field.Root>
                 )}
               />
@@ -232,16 +343,14 @@ export const UserForm = ({ isEditMode }: UserInfoProps) => {
             {/* Role */}
             <GridItem colSpan={1}>
               <Field.Root>
-                <Field.Label>
-                  Role <Field.RequiredIndicator />
-                </Field.Label>
+                <Field.Label>Role</Field.Label>
               </Field.Root>
             </GridItem>
             <GridItem colSpan={3}>
               <Controller
                 control={control}
                 name="role"
-                rules={{ required: true }}
+                rules={{ required: false }}
                 render={({ field }) => (
                   <Field.Root>
                     <Select.Root
@@ -259,6 +368,7 @@ export const UserForm = ({ isEditMode }: UserInfoProps) => {
                           <Select.Indicator />
                         </Select.IndicatorGroup>
                       </Select.Control>
+
                       <Portal>
                         <Select.Positioner>
                           <Select.Content>
@@ -273,7 +383,8 @@ export const UserForm = ({ isEditMode }: UserInfoProps) => {
                       </Portal>
                     </Select.Root>
                     <Field.HelperText>
-                      The user's role for this application, associated with a list of permissions.
+                      The user's role for this application, associated with a list of permissions. If not
+                      selected, role is automatically set to Viewer.
                     </Field.HelperText>
                   </Field.Root>
                 )}
@@ -294,6 +405,7 @@ export const UserForm = ({ isEditMode }: UserInfoProps) => {
               </GridItem>
             )}
 
+            {/* password fields appear only on user creation or when an admin edits a user’s password */}
             {(!isEditMode || canChangePassword) && (
               <>
                 {/* Password */}
@@ -330,17 +442,22 @@ export const UserForm = ({ isEditMode }: UserInfoProps) => {
                 <GridItem colSpan={3}>
                   <Controller
                     control={control}
-                    name="password"
-                    render={({ field }) => (
-                      <Field.Root required>
-                        <Input
-                          type="password"
-                          onBlur={(e) => {
-                            if (checkPasswordConfirmation(password, e.target.value))
-                              field.onChange(e.target.value);
-                          }}
-                        />
-                        <Field.HelperText>Rewrite the password for confirmation.</Field.HelperText>
+                    name={"confirmPassword"}
+                    rules={{
+                      required: "Confirmation password is required",
+                      validate: {
+                        matchesPassword: (value) => {
+                          return value === password || "Passwords do not match";
+                        },
+                      },
+                    }}
+                    render={({ field, fieldState: { error } }) => (
+                      <Field.Root required invalid={!!error}>
+                        <Input type="password" {...field} placeholder="Confirm password" />
+                        {!error && (
+                          <Field.HelperText>Rewrite the password for confirmation.</Field.HelperText>
+                        )}
+                        {error && <Field.ErrorText>{error.message}</Field.ErrorText>}
                       </Field.Root>
                     )}
                   />

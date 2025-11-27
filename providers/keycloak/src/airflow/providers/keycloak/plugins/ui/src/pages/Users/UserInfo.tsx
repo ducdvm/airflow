@@ -35,7 +35,7 @@ function DropdownSection({ isOpen, title, children }: DropdownSectionProps) {
 
 function DropdownContent({ items }: DropdownContentProps) {
   return (
-    <Box borderWidth="1px" borderColor="gray.200" borderRadius="md" p={4} width="100%">
+    <Box borderRadius="md" p={4} width="100%">
       <Grid templateColumns="repeat(4, 1fr)" gap="6">
         {items.map(([label, value]) => (
           <>
@@ -56,8 +56,22 @@ export const UserInfo = () => {
   const { username, firstName, lastName, email, role } = location.state as User;
 
   return (
-    <Box padding="4" borderWidth="1px">
-      <Flex direction="column" gap={3}>
+    <Box
+      p={5}
+      mt={5}
+      flexGrow={1}
+      height="100%"
+      borderRadius={10}
+      borderWidth={2}
+      overflow="hidden"
+      flexDirection={"column"}
+    >
+      <Box gap={2} display="flex">
+        <Button size="sm" colorPalette="red" onClick={() => navigate("/users")} type="button">
+          <IoMdArrowBack />
+        </Button>
+      </Box>
+      <Flex direction="column" gap={3} flexGrow={1} height="100%" width="100%" overflowY="auto" pr={2}>
         <DropdownSection
           isOpen={true}
           title={"User Info"}
@@ -101,11 +115,6 @@ export const UserInfo = () => {
             />
           }
         />
-        <Box gap={2} display="flex">
-          <Button size="sm" colorPalette="red" onClick={() => navigate("/users")} type="button">
-            <IoMdArrowBack />
-          </Button>
-        </Box>
       </Flex>
     </Box>
   );

@@ -1,0 +1,84 @@
+x-airflow-common:
+  &airflow-common
+  env_file: .env
+  depends_on:
+    postgres:
+      condition: service_healthy
+    keycloak:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: airflow
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+      - ./scripts/in_container/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - ./scripts/in_container/keycloak_db_dump.sql:/docker-entrypoint-initdb.d/keycloak_db_dump
+    ports:
+      - "5432:5432"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.4
+    container_name: keycloak
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: postgres
+      KC_DB_URL_DATABASE: keycloak_db
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "exit 0" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "48080:8080"
+    command:
+      - start-dev
+
+  api-server:
+    <<: *airflow-common
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow-custom
+    command: bash -c "airflow db migrate && airflow api-server"
+    ports:
+      - "8080:8080"
+
+  scheduler:
+    <<: *airflow-common
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow-custom
+    command: bash -c "airflow db migrate && airflow scheduler"
+
+  triggerer:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow-custom
+    command: bash -c "airflow db migrate && airflow triggerer"
+
+  dag-processor:
+    <<: *airflow-common
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow-custom
+    command: bash -c "airflow db migrate && airflow dag-processor"
+
+volumes:
+  postgres-db-volume:

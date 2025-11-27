@@ -4,7 +4,7 @@ import { UserForm } from "./UserForm.tsx";
 
 export const AddUser = () => {
   return (
-    <Box p={8} bg="bg.subtle" flexGrow={1} height="100%">
+    <Box p={5} mt={5} flexGrow={1} height="100%" borderRadius={10} borderWidth={2}>
       <VStack align="stretch">
         <Flex justify="space-between" align="center">
           <Heading as="h2" size="xl" mb="8">
@@ -12,7 +12,7 @@ export const AddUser = () => {
           </Heading>
         </Flex>
         <Box>
-          <UserForm isEditMode={false}/>
+          <UserForm isEditMode={false} />
         </Box>
       </VStack>
     </Box>

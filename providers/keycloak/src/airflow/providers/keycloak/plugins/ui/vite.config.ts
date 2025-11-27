@@ -6,32 +6,35 @@ import { defineConfig } from "vitest/config";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ command }) => {
-  const isLibraryBuild = command === 'build';
+  const isLibraryBuild = command === "build";
 
   return {
     base: "./",
-    build: isLibraryBuild ? {
-      chunkSizeWarningLimit: 1600,
-      lib: {
-        entry: resolve("src", "main.tsx"),
-        fileName: 'main',
-        formats: ['umd'],
-        name: 'AirflowPlugin',
-      },
-      rollupOptions: {
-        external: ["react", "react-dom"],
-        output: {
-          globals: {
-            react: "React",
-            "react-dom": "ReactDOM",
-            "react/jsx-runtime": "ReactJSXRuntime",
+    build: isLibraryBuild
+      ? {
+          chunkSizeWarningLimit: 1600,
+          lib: {
+            entry: resolve("src", "main.tsx"),
+            fileName: "main",
+            formats: ["umd"],
+            name: "AirflowPlugin",
           },
+          rollupOptions: {
+            external: ["react", "react-dom"],
+            output: {
+              globals: {
+                react: "React",
+                "react-dom": "ReactDOM",
+                "react/jsx-runtime": "ReactJSXRuntime",
+              },
+            },
+          },
+          sourcemap: true,
+        }
+      : {
+          // Development build configuration
+          chunkSizeWarningLimit: 1600,
         },
-      },
-    } : {
-      // Development build configuration
-      chunkSizeWarningLimit: 1600
-    },
     define: {
       global: "globalThis",
       "process.env": "{}",
@@ -41,11 +44,15 @@ export default defineConfig(({ command }) => {
     plugins: [
       react(),
       cssInjectedByJsPlugin(),
-      ...(isLibraryBuild ? [dts({
-        include: ["src/main.tsx"],
-        insertTypesEntry: true,
-        outDir: "dist"
-      })] : [])
+      ...(isLibraryBuild
+        ? [
+            dts({
+              include: ["src/main.tsx"],
+              insertTypesEntry: true,
+              outDir: "dist",
+            }),
+          ]
+        : []),
     ],
     resolve: { alias: { src: "/src" } },
     server: {

@@ -140,6 +140,8 @@ airflow/www/node_modules
 !airflow-core/src/airflow/ui/dist
 !providers/fab/src/airflow/providers/fab/www/dist
 !providers/edge3/src/airflow/providers/edge3/plugins/www/dist
+!providers/keycloak/src/airflow/providers/keycloak/auth_manager/ui/dist
+!providers/keycloak/src/airflow/providers/keycloak/plugins/ui/dist
 
 # Exclude temporary vi files
 **/*~
@@ -162,3 +164,6 @@ airflow/www/node_modules
 **/_api
 **/_build
 **/_doctree
+
+airflow-venv/
+scripts/in_container/*.sql

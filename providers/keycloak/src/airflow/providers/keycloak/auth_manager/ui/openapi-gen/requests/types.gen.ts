@@ -30,6 +30,20 @@ export type LoginResponse = {
   access_token: string;
 };
 
+export type UserRequest = {
+  username: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  enabled?: boolean;
+  emailVerified?: boolean;
+  password: string;
+};
+
+export type UserResponse = {
+  userid?: string;
+};
+
 export type ValidationError = {
   loc: Array<string | number>;
   msg: string;
@@ -42,8 +56,14 @@ export type CreateTokenData = {
 
 export type CreateTokenResponse = LoginResponse;
 
+export type CreateUserData = {
+  requestBody: UserRequest;
+};
+
+export type CreateUserResponse = UserResponse;
+
 export type $OpenApiTs = {
-  "/token": {
+  "/auth/token": {
     post: {
       req: CreateTokenData;
       res: {
@@ -51,6 +71,29 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: LoginResponse;
+        /**
+         * Bad Request
+         */
+        400: HTTPExceptionResponse;
+        /**
+         * Unauthorized
+         */
+        401: HTTPExceptionResponse;
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError;
+      };
+    };
+  };
+  "/auth/user": {
+    post: {
+      req: CreateUserData;
+      res: {
+        /**
+         * Successful Response
+         */
+        201: UserResponse;
         /**
          * Bad Request
          */

@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { Container, Flex, Heading, Text } from "@chakra-ui/react";
+import { Box, Container, Heading, HStack, Text } from "@chakra-ui/react";
 import type { LoginResponse } from "openapi-gen/requests/types.gen";
 import { useCookies } from "react-cookie";
 import { useSearchParams } from "react-router-dom";
@@ -45,6 +45,7 @@ const isSafeUrl = (targetUrl: string): boolean => {
   }
 };
 
+
 export const Login = () => {
   const [searchParams] = useSearchParams();
   const [, setCookie] = useCookies(["_token"]);
@@ -65,6 +66,7 @@ export const Login = () => {
 
     globalThis.location.replace(redirectTarget);
   };
+
   const { createToken, error, isPending, setError } = useCreateToken({
     onSuccess,
   });
@@ -75,29 +77,47 @@ export const Login = () => {
   };
 
   return (
-    <Flex minH="100vh" align="center" justify="center">
+    <Box
+      _dark={{
+        bg: "gray.900",
+      }}
+      alignItems="center"
+      bg="gray.50"
+      display="flex"
+      justifyContent="center"
+      minH="100vh"
+      p={4}
+    >
       <Container
-        border="1px"
-        borderColor="gray.emphasized"
-        borderRadius={5}
-        borderStyle="solid"
-        borderWidth="1px"
-        maxW="2xl"
-        mt={2}
-        p="4"
+        _dark={{
+          bg: "gray.800",
+        }}
+        bg="white"
+        borderRadius="lg"
+        boxShadow="lg"
+        maxW="md"
+        p={8}
       >
-        <Flex gap={2} mb={6}>
+        <HStack gap={3} mb={6}>
           <AirflowPin height="35px" width="35px" />
-          <Heading colorPalette="blue" fontWeight="normal" size="xl">
+          <Heading _dark={{ color: "white" }} color="gray.800" fontWeight="normal" size="xl">
             Sign into Airflow
           </Heading>
-        </Flex>
+        </HStack>
 
-        {Boolean(error) && <ErrorAlert error={error} />}
+        {Boolean(error) && (
+          <Box mb={4}>
+            <ErrorAlert error={error} />
+          </Box>
+        )}
 
-        <Text mb={4}>Enter your username and password below:</Text>
+        <Text _dark={{ color: "gray.300" }} color="gray.600" mb={4}>
+          Enter your username and password below:
+        </Text>
+
         <LoginForm isPending={isPending} onLogin={onLogin} />
+
       </Container>
-    </Flex>
+    </Box>
   );
 };

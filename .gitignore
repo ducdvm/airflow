@@ -5,6 +5,12 @@ dbinit.py
 initdb.py
 secrets.py
 
+# Custom airflow local directories
+airflow-venv/
+
+# Database script
+scripts/in_container/*.sql
+
 # Airflow sqlite databases
 airflow.db
 

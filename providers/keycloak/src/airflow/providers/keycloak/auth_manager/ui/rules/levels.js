@@ -17,7 +17,6 @@
  * under the License.
  */
 
-<<<<<<<< HEAD:providers/keycloak/src/airflow/providers/keycloak/auth_manager/ui/rules/levels.js
 /** Disabled rule */
 export const OFF = 0;
 
@@ -26,6 +25,3 @@ export const WARN = 1;
 
 /** Rule will show an error. */
 export const ERROR = 2;
-========
-export { DagsFilters } from "./DagsFilters";
->>>>>>>> 3.1.1:airflow-core/src/airflow/ui/src/pages/DagsList/DagsFilters/index.ts

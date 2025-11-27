@@ -18,7 +18,6 @@
  */
 import { ChakraProvider, defaultSystem } from "@chakra-ui/react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
 import { CookiesProvider } from "react-cookie";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
@@ -29,12 +28,10 @@ import { queryClient } from "./queryClient";
 
 createRoot(document.querySelector("#root") as HTMLDivElement).render(
   <ChakraProvider value={defaultSystem}>
-    <ThemeProvider attribute="class" disableTransitionOnChange>
-      <QueryClientProvider client={queryClient}>
-        <CookiesProvider>
-          <RouterProvider router={router} />
-        </CookiesProvider>
-      </QueryClientProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <CookiesProvider>
+        <RouterProvider router={router} />
+      </CookiesProvider>
+    </QueryClientProvider>
   </ChakraProvider>,
 );

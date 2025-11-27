@@ -17,31 +17,37 @@ app = FastAPI(
 )
 
 react_app_directory = Path(__file__).parent.joinpath("ui", "dist")
+resource_directory = Path(__file__).parent.joinpath("ui", "src", "res")
+
 app.mount(
     "/static",
     StaticFiles(directory=react_app_directory, html=True),
     name="keycloak_auth_manager_ui_plugin_folder",
 )
-
+app.mount(
+    "/res",
+    StaticFiles(directory=resource_directory, html=True),
+    name="keycloak_auth_manager_ui_plugin_resource_folder"
+)
 
 class KeycloakAuthManagerPlugin(AirflowPlugin):
     name = "keycloak_auth_manager_plugin"
 
-    # Serve static files
     fastapi_apps = [
         {
             "app": app,
-            "url_prefix": "/plugins/keycloak_auth_manager",
+            "url_prefix": "/keycloak_auth_manager",
             "name": "Keycloak auth manager plugin static server",
         }
     ]
 
-    # Register React application
     react_apps = [
         {
-            "name": "Airflow Security",
-            "url_route": "security/users",
-            "bundle_url": "/plugins/keycloak_auth_manager/static/main.umd.cjs",
+            "name": "Security",
+            "url_route": "security",
+            "bundle_url": "/keycloak_auth_manager/static/main.umd.cjs",
             "destination": "nav",
+            "icon": "/keycloak_auth_manager/res/security-svgrepo-com.svg",
+            "icon_dark_mode": "/keycloak_auth_manager/res/security-svgrepo-com-light.svg",
         }
     ]

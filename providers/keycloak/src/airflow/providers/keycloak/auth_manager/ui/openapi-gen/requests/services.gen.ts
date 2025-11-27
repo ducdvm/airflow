@@ -2,7 +2,7 @@
 import type { CancelablePromise } from "./core/CancelablePromise";
 import { OpenAPI } from "./core/OpenAPI";
 import { request as __request } from "./core/request";
-import type { CreateTokenData, CreateTokenResponse } from "./types.gen";
+import type { CreateTokenData, CreateTokenResponse, CreateUserData, CreateUserResponse } from "./types.gen";
 
 export class KeycloakAuthManagerLoginService {
   /**
@@ -16,7 +16,30 @@ export class KeycloakAuthManagerLoginService {
   public static createToken(data: CreateTokenData): CancelablePromise<CreateTokenResponse> {
     return __request(OpenAPI, {
       method: "POST",
-      url: "/token",
+      url: "/auth/token",
+      body: data.requestBody,
+      mediaType: "application/json",
+      errors: {
+        400: "Bad Request",
+        401: "Unauthorized",
+        422: "Validation Error",
+      },
+    });
+  }
+}
+
+export class KeycloakAuthManagerSecurityService {
+  /**
+   * Create User
+   * @param data The data for the request.
+   * @param data.requestBody
+   * @returns UserResponse Successful Response
+   * @throws ApiError
+   */
+  public static createUser(data: CreateUserData): CancelablePromise<CreateUserResponse> {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/auth/user",
       body: data.requestBody,
       mediaType: "application/json",
       errors: {

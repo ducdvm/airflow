@@ -24,11 +24,13 @@ from airflow.providers.keycloak.auth_manager.api_fastapi import __file__ as KEYC
 from airflow.providers.keycloak.auth_manager.keycloak_auth_manager import KeycloakAuthManager
 from airflow.providers_manager import ProvidersManager
 
+from airflow.api_fastapi.app import AUTH_MANAGER_FASTAPI_APP_PREFIX
+
 sys.path.insert(0, str(Path(__file__).parent.resolve()))
 from in_container_utils import console, generate_openapi_file, validate_openapi_file
 
 KEYCLOAK_AUTH_MANAGER_OPENAPI_SPEC_FILE = (
-    Path(KEYCLOAK_AUTH_MANAGER_API_PATH).parent / "openapi" / "v1-keycloak-auth-manager-generated.yaml"
+    Path(KEYCLOAK_AUTH_MANAGER_API_PATH).parent / "openapi" / "v0.0.1-keycloak-auth-manager-generated.yaml"
 )
 
 if not KEYCLOAK_AUTH_MANAGER_OPENAPI_SPEC_FILE.exists():
@@ -40,7 +42,7 @@ ProvidersManager().initialize_providers_configuration()
 keycloak_auth_manager_app = KeycloakAuthManager().get_fastapi_app()
 
 if keycloak_auth_manager_app:
-    generate_openapi_file(app=keycloak_auth_manager_app, file_path=KEYCLOAK_AUTH_MANAGER_OPENAPI_SPEC_FILE)
+    generate_openapi_file(app=keycloak_auth_manager_app, file_path=KEYCLOAK_AUTH_MANAGER_OPENAPI_SPEC_FILE, prefix=AUTH_MANAGER_FASTAPI_APP_PREFIX)
     validate_openapi_file(KEYCLOAK_AUTH_MANAGER_OPENAPI_SPEC_FILE)
 else:
     console.print("[red]Keycloak auth manager app not found. Skipping OpenAPI spec generation.[/]")

@@ -1,0 +1,396 @@
+openapi: 3.1.0
+info:
+  title: Keycloak auth manager API
+  description: This is Keycloak auth manager API. This API is only available if the
+    auth manager used in the Airflow environment is Keycloak auth manager. This API
+    provides endpoints to manage users and permissions managed by the Keycloak auth
+    manager.
+  version: 0.1.0
+paths:
+  /auth/token:
+    post:
+      tags:
+      - KeycloakAuthManagerLogin
+      summary: Create Token
+      description: Generate a new API token.
+      operationId: create_token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginBody'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/users:
+    get:
+      tags:
+      - KeycloakAuthManagerSecurity
+      summary: Get Users
+      operationId: get_users
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/UserResponse'
+                type: array
+                title: Response Get Users
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+    post:
+      tags:
+      - KeycloakAuthManagerSecurity
+      summary: Create User
+      operationId: create_user
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/users/{userid}:
+    patch:
+      tags:
+      - KeycloakAuthManagerSecurity
+      summary: Update User
+      operationId: update_user
+      parameters:
+      - name: userid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Userid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserUpdateRequest'
+      responses:
+        '204':
+          description: Successful Response
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Bad Request
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Unauthorized
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Conflict
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - KeycloakAuthManagerSecurity
+      summary: Delete User
+      operationId: delete_user
+      parameters:
+      - name: userid
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Userid
+      responses:
+        '204':
+          description: Successful Response
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Bad Request
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPExceptionResponse'
+          description: Unauthorized
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    HTTPExceptionResponse:
+      properties:
+        detail:
+          anyOf:
+          - type: string
+          - additionalProperties: true
+            type: object
+          title: Detail
+      type: object
+      required:
+      - detail
+      title: HTTPExceptionResponse
+      description: HTTPException Model used for error response.
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    LoginBody:
+      properties:
+        username:
+          type: string
+          title: Username
+        password:
+          type: string
+          title: Password
+      additionalProperties: false
+      type: object
+      required:
+      - username
+      - password
+      title: LoginBody
+      description: Login serializer for post bodies.
+    LoginResponse:
+      properties:
+        access_token:
+          type: string
+          title: Access Token
+      type: object
+      required:
+      - access_token
+      title: LoginResponse
+      description: Login serializer for responses.
+    UserRequest:
+      properties:
+        username:
+          type: string
+          title: Username
+        email:
+          type: string
+          format: email
+          title: Email
+        first_name:
+          type: string
+          title: First Name
+        last_name:
+          type: string
+          title: Last Name
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+        email_verified:
+          type: boolean
+          title: Email Verified
+          default: false
+        role:
+          type: string
+          title: Role
+        password:
+          type: string
+          title: Password
+      additionalProperties: false
+      type: object
+      required:
+      - username
+      - email
+      - first_name
+      - last_name
+      - role
+      - password
+      title: UserRequest
+    UserResponse:
+      properties:
+        userid:
+          type: string
+          title: Userid
+        username:
+          type: string
+          title: Username
+        email:
+          type: string
+          format: email
+          title: Email
+        first_name:
+          type: string
+          title: First Name
+        last_name:
+          type: string
+          title: Last Name
+        enabled:
+          type: boolean
+          title: Enabled
+        email_verified:
+          type: boolean
+          title: Email Verified
+        roles:
+          items:
+            type: string
+          type: array
+          title: Roles
+        created_timestamp:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Created Timestamp
+      type: object
+      required:
+      - userid
+      - username
+      - email
+      - first_name
+      - last_name
+      - enabled
+      - email_verified
+      - roles
+      title: UserResponse
+    UserUpdateRequest:
+      properties:
+        username:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Username
+        email:
+          anyOf:
+          - type: string
+            format: email
+          - type: 'null'
+          title: Email
+        firstName:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Firstname
+        lastName:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Lastname
+        enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Enabled
+        emailVerified:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Emailverified
+        role:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Role
+        password:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Password
+      additionalProperties: false
+      type: object
+      title: UserUpdateRequest
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError

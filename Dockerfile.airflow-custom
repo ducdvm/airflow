@@ -1,0 +1,42 @@
+# Dockerfile.airflow-cust
+ARG AIRFLOW_HOME=/opt/airflow # Directory where dags, db and configs are stored
+
+# Stage 1: builder
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+
+COPY . /build/airflow
+
+# Install dependencies to compile python packages
+RUN apt-get update && \
+    apt-get install -y build-essential && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create a virtual environment for the project
+RUN python -m venv /venv
+ENV PATH="/venv/bin:$PATH"
+
+# Install airflow directory into virtual env
+
+# install extra requirements
+RUN pip install -r /build/airflow/constraints/constraints.txt
+
+# install working directory
+RUN pip install /build/airflow
+RUN pip install /build/airflow/providers/keycloak
+
+# Stage 2: final image
+FROM python:3.12-slim
+
+ARG AIRFLOW_HOME=/opt/airflow
+
+COPY --from=builder /venv /venv
+
+ENV PATH="/venv/bin:$PATH"
+
+WORKDIR /venv
+
+ENV AIRFLOW_HOME=${AIRFLOW_HOME}
+
+# Entrypoint now depends on service (api-server, scheduler, dag-processor, triggerer)

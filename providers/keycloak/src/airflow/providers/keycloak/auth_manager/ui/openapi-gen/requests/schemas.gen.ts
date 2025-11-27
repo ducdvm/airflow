@@ -66,6 +66,57 @@ export const $LoginResponse = {
   description: "Login serializer for responses.",
 } as const;
 
+export const $UserRequest = {
+  properties: {
+    username: {
+      type: "string",
+      title: "Username",
+    },
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    firstName: {
+      type: "string",
+      title: "Firstname",
+    },
+    lastName: {
+      type: "string",
+      title: "Lastname",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: true,
+    },
+    emailVerified: {
+      type: "boolean",
+      title: "Emailverified",
+      default: false,
+    },
+    password: {
+      type: "string",
+      title: "Password",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["username", "email", "firstName", "lastName", "password"],
+  title: "UserRequest",
+} as const;
+
+export const $UserResponse = {
+  properties: {
+    userid: {
+      type: "string",
+      title: "Userid",
+    },
+  },
+  type: "object",
+  title: "UserResponse",
+} as const;
+
 export const $ValidationError = {
   properties: {
     loc: {
